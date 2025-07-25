@@ -16,8 +16,6 @@ if response.status_code == 200:
     print(json.dumps(data, indent=2, ensure_ascii=False))
 
 print("\n")
-print()
-
 
 # fetching url for bike list and rent status
 API_KEY_LIST = os.getenv("KEY_BIKE_LIST")
