@@ -72,6 +72,24 @@ def fetch_bikeList_data():
                 int(station['rackTotCnt']) - int(station['parkingBikeTotCnt'])
             )
         )
+    # Update station coordinates if they exist
+        if station.get('stationLatitude') and station.get('stationLongitude'):
+            try:
+                lat = float(station['stationLatitude'])
+                lng = float(station['stationLongitude'])
+                
+                cursor.execute('''
+                    INSERT OR REPLACE INTO stations 
+                    (station_id, station_name, latitude, longitude, last_updated)
+                    VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ''', (
+                    station['stationId'],
+                    station.get('stationName', ''),
+                    lat,
+                    lng
+                    ))   
+            except ValueError as e:
+                logging.warning(f"Invalid coordinates for station {station['stationId']}: {e}")
     conn.commit()
     check_data_health(timestamp)
     conn.close()

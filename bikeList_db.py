@@ -4,7 +4,7 @@ import sqlite3
 conn = sqlite3.connect('seoul_bike.db')
 cursor = conn.cursor()
 
-# Create your first table
+# Creating bike_availability table
 cursor.execute('''
     CREATE TABLE IF NOT EXISTS bike_availability (
         station_id TEXT,
@@ -15,3 +15,14 @@ cursor.execute('''
     )
 ''')
 conn.commit()
+
+# Creating stations table for coordinates
+cursor.execute('''
+    CREATE TABLE IF NOT EXISTS stations (
+        station_id TEXT PRIMARY KEY,
+        station_name TEXT,
+        latitude REAL NOT NULL,
+        longitude REAL NOT NULL,
+        last_updated DATETIME DEFAULT CURRENT_TIMESTAMP
+    )
+''')
