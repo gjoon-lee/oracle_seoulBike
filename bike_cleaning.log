@@ -1,0 +1,22 @@
+2025-07-31 20:53:45,422 - BikeDataCleaner - INFO - 
+============================================================
+2025-07-31 20:53:45,422 - BikeDataCleaner - INFO - Processing: tpss_bcycl_od_statnhm_20250601.csv
+2025-07-31 20:53:45,422 - BikeDataCleaner - INFO - ============================================================
+2025-07-31 20:53:45,425 - BikeDataCleaner - ERROR - Error with cp949: [Errno 2] No such file or directory: 'tpss_bcycl_od_statnhm_20250601.csv'
+2025-07-31 20:53:45,428 - BikeDataCleaner - ERROR - Error with euc-kr: [Errno 2] No such file or directory: 'tpss_bcycl_od_statnhm_20250601.csv'
+2025-07-31 20:53:45,429 - BikeDataCleaner - ERROR - Error with utf-8-sig: [Errno 2] No such file or directory: 'tpss_bcycl_od_statnhm_20250601.csv'
+2025-07-31 20:53:45,430 - BikeDataCleaner - ERROR - Error with utf-8: [Errno 2] No such file or directory: 'tpss_bcycl_od_statnhm_20250601.csv'
+2025-07-31 20:55:14,992 - BikeDataCleaner - INFO - 
+============================================================
+2025-07-31 20:55:14,993 - BikeDataCleaner - INFO - Processing: tpss_bcycl_od_statnhm_20250601.csv
+2025-07-31 20:55:14,993 - BikeDataCleaner - INFO - ============================================================
+2025-07-31 20:55:16,231 - BikeDataCleaner - INFO - 
+        Cleaning complete for 2025-06-01:
+        - Initial rows: 229,003
+        - Final rows: 229,003
+        - Removed: 0 (0.0%)
+        - Processing time: 0.80 seconds
+        
+2025-07-31 20:55:16,312 - BikeDataCleaner - WARNING - Data quality issues: Found 55 trips longer than 8 hours
+2025-07-31 20:55:16,313 - BikeDataCleaner - INFO - Loading raw trip data to PostgreSQL...
+2025-07-31 20:57:04,066 - BikeDataCleaner - INFO - Creating hourly flow aggregations...
