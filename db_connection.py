@@ -4,6 +4,9 @@ import pandas as pd
 from datetime import datetime
 import logging
 
+# Suppress SQLAlchemy's verbose logging
+logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
+
 # Database configuration
 DB_CONFIG = {
     'host': 'localhost',
@@ -12,6 +15,7 @@ DB_CONFIG = {
     'password': '123Ryanlee!',
     'port': 5432
 }
+
 
 class BikeDataDB:
     """PostgreSQL connection manager for Seoul Bikes project"""
@@ -32,27 +36,29 @@ class BikeDataDB:
         try:
             # Build connection string
             conn_string = f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
-            self.engine = create_engine(conn_string)
-            self.logger.info("Connected to PostgreSQL")
+            
+            # Create engine with echo=False to suppress SQL output
+            self.engine = create_engine(conn_string, echo=False)
+            self.logger.info("✅ Connected to PostgreSQL")
             return self.engine
         except Exception as e:
-            self.logger.error(f"Connection failed: {e}")
+            self.logger.error(f"❌ Connection failed: {e}")
             raise
     
     def test_connection(self):
         """Test database connection"""
         try:
             with self.engine.connect() as conn:
-                result = conn.execute(text("SELECT version();"))
+                result = conn.execute("SELECT version();")
                 version = result.fetchone()[0]
                 self.logger.info(f"PostgreSQL version: {version}")
                 
                 # Check tables
-                result = conn.execute(text("""
+                result = conn.execute("""
                     SELECT table_name 
                     FROM information_schema.tables 
                     WHERE table_schema = 'public'
-                """))
+                """)
                 tables = [row[0] for row in result]
                 self.logger.info(f"Tables found: {tables}")
                 return True
@@ -63,7 +69,7 @@ class BikeDataDB:
     def execute_query(self, query, params=None):
         """Execute a raw SQL query"""
         with self.engine.connect() as conn:
-            return conn.execute(text(query), params)
+            return conn.execute(query, params)
     
     def insert_dataframe(self, df, table_name, if_exists='append'):
         """Insert pandas DataFrame to PostgreSQL"""
@@ -75,10 +81,10 @@ class BikeDataDB:
                 index=False,
                 method='multi'  # Faster bulk inserts
             )
-            self.logger.info(f"Inserted {rows} rows into {table_name}")
+            self.logger.info(f"✅ Inserted {rows} rows into {table_name}")
             return rows
         except Exception as e:
-            self.logger.error(f"Insert failed: {e}")
+            self.logger.error(f"❌ Insert failed: {e}")
             raise
     
     def read_query(self, query):
@@ -101,23 +107,29 @@ class BikeDataDB:
     
     def log_data_quality(self, file_name, stats):
         """Log data quality metrics"""
-        query = """
+        from sqlalchemy import text
+        
+        query = text("""
             INSERT INTO data_quality_log 
             (file_name, record_date, total_rows, valid_rows, 
-             duplicate_rows, encoding_errors, processing_time_sec, status)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-        """
+             duplicate_rows, encoding_errors, processing_time_sec, status, error_details)
+            VALUES (:file_name, :record_date, :total_rows, :valid_rows, 
+                    :duplicate_rows, :encoding_errors, :processing_time_sec, :status, :error_details)
+        """)
+        
         with self.engine.connect() as conn:
-            conn.execute(text(query), (
-                file_name,
-                stats['record_date'],
-                stats['total_rows'],
-                stats['valid_rows'],
-                stats['duplicate_rows'],
-                stats['encoding_errors'],
-                stats['processing_time'],
-                stats['status']
-            ))
+            result = conn.execute(query, {
+                'file_name': file_name,
+                'record_date': stats['record_date'],
+                'total_rows': stats['total_rows'],
+                'valid_rows': stats['valid_rows'],
+                'duplicate_rows': stats['duplicate_rows'],
+                'encoding_errors': stats['encoding_errors'],
+                'processing_time_sec': stats['processing_time'],
+                'status': stats['status'],
+                'error_details': stats.get('error_details', None)
+            })
+            conn.commit()
 
 # Quick test script
 if __name__ == "__main__":
@@ -127,7 +139,7 @@ if __name__ == "__main__":
     
     # Test connection
     if db.test_connection():
-        print("\nPostgreSQL is ready for your Seoul Bikes project!")
+        print("\n✅ PostgreSQL is ready for your Seoul Bikes project!")
         
         # Example: Check if tables exist
         tables_check = db.read_query("""
@@ -140,4 +152,4 @@ if __name__ == "__main__":
         print("\nYour tables:")
         print(tables_check)
     else:
-        print("\nConnection failed. Check your PostgreSQL installation.")
+        print("\n❌ Connection failed. Check your PostgreSQL installation.")

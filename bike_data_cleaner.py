@@ -9,7 +9,8 @@ import time
 
 class BikeDataCleaner:
     """
-    Cleaning pipeline for Seoul bike trip data
+    Cleaning pipeline for Seoul bike trip data with Korean encoding
+    Handles: encoding issues, data validation, aggregation, and PostgreSQL loading
     """
     
     def __init__(self, db_connection):
@@ -61,22 +62,15 @@ class BikeDataCleaner:
     
     def read_csv_with_encoding(self, filepath):
         """
-        Read CSV with Korean encoding (cp949 or euc-kr)
-        Tries multiple encodings to handle different file formats
+        Read CSV with Korean encoding (cp949)
         """
-        encodings = ['cp949', 'euc-kr', 'utf-8-sig', 'utf-8']
-        
-        for encoding in encodings:
-            try:
-                df = pd.read_csv(filepath, encoding=encoding)
-                self.logger.info(f"✅ Successfully read {filepath} with {encoding} encoding")
-                return df
-            except UnicodeDecodeError:
-                continue
-            except Exception as e:
-                self.logger.error(f"Error with {encoding}: {e}")
-                
-        raise ValueError(f"Could not read {filepath} with any encoding")
+        try:
+            df = pd.read_csv(filepath, encoding='cp949')
+            self.logger.info(f"✅ Successfully read {filepath}")
+            return df
+        except Exception as e:
+            self.logger.error(f"Error reading file: {e}")
+            raise
     
     def extract_date_from_filename(self, filename):
         """Extract date from filename format: tpss_bcycl_od_statnhm_YYYYMMDD.csv"""
@@ -168,51 +162,114 @@ class BikeDataCleaner:
     
     def aggregate_hourly_flow(self, df):
         """
-        Aggregate data to hourly station flow
+        Aggregate data to hourly station flow - OPTIMIZED VERSION
         Creates records showing bikes arriving/departing each hour
         """
-        hourly_flows = []
+        self.logger.info("Starting hourly aggregation...")
         
-        # Group by station, date, hour
-        for (station_id, date, hour), group in df.groupby(['start_station_id', 'record_date', 'hour']):
-            # Calculate departures and arrivals
-            departures = group[group['aggregation_type'] == 'departure']['trip_count'].sum()
-            
-            # For arrivals, we need to look at end_station_id
-            arrivals_df = df[(df['end_station_id'] == station_id) & 
-                            (df['record_date'] == date) & 
-                            (df['hour'] == hour) & 
-                            (df['aggregation_type'] == 'arrival')]
-            arrivals = arrivals_df['trip_count'].sum()
-            
-            # Get other metrics
-            day_of_week = group['day_of_week'].iloc[0]
-            is_weekend = group['is_weekend'].iloc[0]
-            season = group['season'].iloc[0]
-            
-            # Average trip metrics (for departures only)
-            departure_data = group[group['aggregation_type'] == 'departure']
-            if len(departure_data) > 0 and departures > 0:
-                avg_duration = departure_data['total_duration_min'].sum() / departures
-                avg_distance = departure_data['total_distance_m'].sum() / departures
-            else:
-                avg_duration = 0
-                avg_distance = 0
-            
-            hourly_flows.append({
-                'station_id': station_id,
-                'flow_date': date,
-                'flow_hour': hour,
-                'bikes_departed': int(departures),
-                'bikes_arrived': int(arrivals),
-                'day_of_week': day_of_week,
-                'is_weekend': is_weekend,
-                'season': season,
-                'avg_trip_duration_min': round(avg_duration, 2),
-                'avg_trip_distance_m': round(avg_distance, 2)
-            })
+        # 1. Calculate DEPARTURES (bikes leaving stations)
+        departures = df[df['aggregation_type'] == 'departure'].groupby(
+            ['start_station_id', 'record_date', 'hour']
+        ).agg({
+            'trip_count': 'sum',
+            'total_duration_min': 'sum',
+            'total_distance_m': 'sum',
+            'day_of_week': 'first',
+            'is_weekend': 'first',
+            'season': 'first'
+        }).reset_index()
         
-        return pd.DataFrame(hourly_flows)
+        # Calculate averages
+        departures['avg_trip_duration_min'] = np.where(
+            departures['trip_count'] > 0,
+            departures['total_duration_min'] / departures['trip_count'],
+            0
+        )
+        departures['avg_trip_distance_m'] = np.where(
+            departures['trip_count'] > 0,
+            departures['total_distance_m'] / departures['trip_count'],
+            0
+        )
+        
+        # Rename columns
+        departures = departures.rename(columns={
+            'start_station_id': 'station_id',
+            'record_date': 'flow_date',
+            'hour': 'flow_hour',
+            'trip_count': 'bikes_departed'
+        })
+        
+        # 2. Calculate ARRIVALS (bikes arriving at stations)
+        arrivals = df[df['aggregation_type'] == 'arrival'].groupby(
+            ['end_station_id', 'record_date', 'hour']
+        ).agg({
+            'trip_count': 'sum'
+        }).reset_index()
+        
+        arrivals = arrivals.rename(columns={
+            'end_station_id': 'station_id',
+            'record_date': 'flow_date',
+            'hour': 'flow_hour',
+            'trip_count': 'bikes_arrived'
+        })
+        
+        # 3. Get all unique station-date-hour combinations
+        all_stations = pd.concat([
+            departures[['station_id', 'flow_date', 'flow_hour']],
+            arrivals[['station_id', 'flow_date', 'flow_hour']]
+        ]).drop_duplicates()
+        
+        # 4. Merge departures and arrivals
+        hourly_flow = all_stations.merge(
+            departures[['station_id', 'flow_date', 'flow_hour', 'bikes_departed', 
+                       'day_of_week', 'is_weekend', 'season', 
+                       'avg_trip_duration_min', 'avg_trip_distance_m']],
+            on=['station_id', 'flow_date', 'flow_hour'],
+            how='left'
+        )
+        
+        hourly_flow = hourly_flow.merge(
+            arrivals[['station_id', 'flow_date', 'flow_hour', 'bikes_arrived']],
+            on=['station_id', 'flow_date', 'flow_hour'],
+            how='left'
+        )
+        
+        # 5. Fill missing values
+        hourly_flow['bikes_departed'] = hourly_flow['bikes_departed'].fillna(0).astype(int)
+        hourly_flow['bikes_arrived'] = hourly_flow['bikes_arrived'].fillna(0).astype(int)
+        hourly_flow['avg_trip_duration_min'] = hourly_flow['avg_trip_duration_min'].fillna(0).round(2)
+        hourly_flow['avg_trip_distance_m'] = hourly_flow['avg_trip_distance_m'].fillna(0).round(2)
+        
+        # For stations with only arrivals, we need to fill in the date features
+        # Get the date features from the original df
+        date_features = df[['record_date', 'day_of_week', 'is_weekend', 'season']].drop_duplicates()
+        date_features = date_features.rename(columns={'record_date': 'flow_date'})
+        
+        # Merge to fill missing date features
+        hourly_flow = hourly_flow.merge(
+            date_features,
+            on='flow_date',
+            how='left',
+            suffixes=('', '_fill')
+        )
+        
+        # Use the filled values where original is missing
+        for col in ['day_of_week', 'is_weekend', 'season']:
+            hourly_flow[col] = hourly_flow[col].fillna(hourly_flow[f'{col}_fill'])
+            hourly_flow = hourly_flow.drop(columns=[f'{col}_fill'])
+        
+        # Select final columns in correct order
+        final_columns = [
+            'station_id', 'flow_date', 'flow_hour', 
+            'bikes_departed', 'bikes_arrived',
+            'day_of_week', 'is_weekend', 'season',
+            'avg_trip_duration_min', 'avg_trip_distance_m'
+        ]
+        
+        hourly_flow = hourly_flow[final_columns]
+        
+        self.logger.info(f"Created {len(hourly_flow):,} hourly flow records")
+        return hourly_flow
     
     def validate_data(self, df):
         """Run data quality checks"""
@@ -245,6 +302,8 @@ class BikeDataCleaner:
         self.logger.info(f"Processing: {filename}")
         self.logger.info(f"{'='*60}")
         
+        start_time = time.time()
+        
         try:
             # 1. Read CSV with Korean encoding
             df = self.read_csv_with_encoding(filepath)
@@ -257,9 +316,16 @@ class BikeDataCleaner:
             if issues:
                 self.logger.warning(f"Data quality issues: {', '.join(issues)}")
             
-            # 4. Load raw data to PostgreSQL
+            # 4. Load raw data to PostgreSQL (chunked for better performance)
             self.logger.info("Loading raw trip data to PostgreSQL...")
-            rows_inserted = self.db.insert_dataframe(df_clean, 'raw_bike_trips')
+            chunk_size = 50000
+            total_rows = 0
+            
+            for i in range(0, len(df_clean), chunk_size):
+                chunk = df_clean.iloc[i:i+chunk_size]
+                rows = self.db.insert_dataframe(chunk, 'raw_bike_trips')
+                total_rows += len(chunk)
+                self.logger.info(f"  Loaded {total_rows:,}/{len(df_clean):,} rows...")
             
             # 5. Create hourly aggregations
             self.logger.info("Creating hourly flow aggregations...")
@@ -268,25 +334,45 @@ class BikeDataCleaner:
             # 6. Load aggregated data
             flow_rows = self.db.insert_dataframe(hourly_flow, 'station_hourly_flow')
             
-            # 7. Log processing stats
+            # 7. Calculate processing time
+            processing_time = time.time() - start_time
+            
+            # 8. Log processing stats
             stats = {
                 'file_name': filename,
                 'record_date': file_date,
                 'total_rows': len(df),
                 'valid_rows': len(df_clean),
-                'duplicate_rows': len(df) - len(df_clean),
+                'duplicate_rows': 0,  # We're not tracking this precisely yet
                 'encoding_errors': 0,
-                'processing_time': 0,  # Will be calculated
-                'status': 'SUCCESS'
+                'processing_time': processing_time,
+                'status': 'SUCCESS',
+                'error_details': None  # No errors for success
             }
             
             self.db.log_data_quality(filename, stats)
             
-            self.logger.info(f"✅ Successfully processed {filename}")
+            self.logger.info(f"✅ Successfully processed {filename} in {processing_time:.1f} seconds")
             return True
             
         except Exception as e:
             self.logger.error(f"❌ Failed to process {filename}: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            
+            # Log failure
+            stats = {
+                'file_name': filename,
+                'record_date': file_date,
+                'total_rows': 0,
+                'valid_rows': 0,
+                'duplicate_rows': 0,
+                'encoding_errors': 0,
+                'processing_time': time.time() - start_time,
+                'status': 'FAILED',
+                'error_details': str(e)
+            }
+            
             return False
     
     def process_directory(self, directory_path, pattern='tpss_bcycl_od_statnhm_*.csv'):
@@ -329,7 +415,7 @@ if __name__ == "__main__":
     cleaner = BikeDataCleaner(db)
     
     # Process a single file
-    # cleaner.process_file('data/tpss_bcycl_od_statnhm_20250601.csv')
+    cleaner.process_file('bike_historical_data/2025_06/tpss_bcycl_od_statnhm_20250607.csv')
     
     # Or process all files in a directory
     # cleaner.process_directory('data/')
