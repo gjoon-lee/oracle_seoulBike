@@ -415,10 +415,15 @@ if __name__ == "__main__":
     cleaner = BikeDataCleaner(db)
     
     # Process a single file
-    cleaner.process_file('bike_historical_data/2025_06/tpss_bcycl_od_statnhm_20250607.csv')
+    #cleaner.process_file('bike_historical_data/2025_06/tpss_bcycl_od_statnhm_20250607.csv')
     
     # Or process all files in a directory
-    # cleaner.process_directory('data/')
+    cleaner.process_directory('bike_historical_data/2025_01')
+    cleaner.process_directory('bike_historical_data/2025_02')
+    cleaner.process_directory('bike_historical_data/2025_03')
+    cleaner.process_directory('bike_historical_data/2025_04')
+    cleaner.process_directory('bike_historical_data/2025_05')
+    cleaner.process_directory('bike_historical_data/2025_06')
     
     # Get summary
     # summary = cleaner.get_processing_summary()
