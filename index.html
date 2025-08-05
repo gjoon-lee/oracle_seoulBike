@@ -1,0 +1,372 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>따릉이 재배치 경로 최적화</title>
+    <script async defer src="https://maps.googleapis.com/maps/api/js?key=AIzaSyCF8L9A3cpBLHUCr8fICyVcW5INkygiliI&callback=initMap"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: #f5f5f5;
+        }
+
+        .container {
+            display: flex;
+            height: 100vh;
+        }
+
+        .map-container {
+            flex: 2;
+            position: relative;
+        }
+
+        #map {
+            width: 100%;
+            height: 100%;
+        }
+
+        .control-panel {
+            flex: 1;
+            background: white;
+            padding: 20px;
+            box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+            overflow-y: auto;
+        }
+
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+
+        .header h1 {
+            color: #2c3e50;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+
+        .header p {
+            color: #7f8c8d;
+            font-size: 14px;
+        }
+
+        .calculate-btn {
+            width: 100%;
+            padding: 15px;
+            background: #3498db;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: bold;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-bottom: 20px;
+        }
+
+        .calculate-btn:hover {
+            background: #2980b9;
+        }
+
+        .calculate-btn:disabled {
+            background: #bdc3c7;
+            cursor: not-allowed;
+        }
+
+        .results {
+            display: none;
+        }
+
+        .results.show {
+            display: block;
+        }
+
+        .result-section {
+            margin-bottom: 25px;
+            padding: 20px;
+            background: #f8f9fa;
+            border-radius: 8px;
+            border-left: 4px solid #3498db;
+        }
+
+        .result-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #2c3e50;
+            margin-bottom: 15px;
+        }
+
+        .distance-info {
+            font-size: 24px;
+            color: #e74c3c;
+            font-weight: bold;
+            text-align: center;
+            padding: 15px;
+            background: white;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .route-list {
+            max-height: 300px;
+            overflow-y: auto;
+        }
+
+        .route-item {
+            display: flex;
+            align-items: center;
+            padding: 10px;
+            margin-bottom: 8px;
+            background: white;
+            border-radius: 6px;
+            border: 1px solid #ecf0f1;
+        }
+
+        .route-number {
+            background: #3498db;
+            color: white;
+            width: 25px;
+            height: 25px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 12px;
+            font-weight: bold;
+            margin-right: 12px;
+            flex-shrink: 0;
+        }
+
+        .route-number.depot {
+            background: #e74c3c;
+        }
+
+        .route-name {
+            font-size: 14px;
+            color: #2c3e50;
+        }
+
+        .loading {
+            text-align: center;
+            color: #7f8c8d;
+            font-style: italic;
+        }
+
+        .legend {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: white;
+            padding: 15px;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+            z-index: 1000;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            margin-bottom: 8px;
+            font-size: 12px;
+        }
+
+        .legend-item:last-child {
+            margin-bottom: 0;
+        }
+
+        .legend-icon {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+
+        .legend-icon.depot {
+            background: #e74c3c;
+        }
+
+        .legend-icon.station {
+            background: #3498db;
+        }
+
+        .legend-icon.route {
+            background: #2ecc71;
+            border-radius: 0;
+            height: 3px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="map-container">
+            <div id="map"></div>
+            <div class="legend">
+                <div class="legend-item">
+                    <div class="legend-icon depot"></div>
+                    <span>차고지 (빨간색)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-icon station"></div>
+                    <span>대여소 (파란색)</span>
+                </div>
+                <div class="legend-item">
+                    <div class="legend-icon route"></div>
+                    <span>최적 경로</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="control-panel">
+            <div class="header">
+                <h1>따릉이 재배치</h1>
+                <p>경로 최적화 시스템</p>
+            </div>
+
+            <button class="calculate-btn" onclick="calculateOptimalRoute()">
+                최적 경로 계산
+            </button>
+
+            <div id="results" class="results">
+                <div class="result-section">
+                    <div class="result-title">총 이동 거리</div>
+                    <div id="total-distance" class="distance-info">-</div>
+                </div>
+
+                <div class="result-section">
+                    <div class="result-title">방문 순서</div>
+                    <div id="route-list" class="route-list"></div>
+                </div>
+            </div>
+
+            <div id="loading" class="loading" style="display: none;">
+                경로를 계산하고 있습니다...
+            </div>
+        </div>
+    </div>
+
+    <script>
+        let map;
+        let markers = [];
+        let polyline = null;
+
+        function initMap() {
+            const mapContainer = document.getElementById('map');
+            const mapOptions = {
+                center: { lat: 37.5665, lng: 126.9780 }, 
+                zoom: 12,
+                mapTypeId: 'roadmap'
+            };
+            map = new google.maps.Map(mapContainer, mapOptions);
+            console.log('구글 지도 초기화 완료');
+        }
+
+        async function calculateOptimalRoute() {
+            const loadingElement = document.getElementById('loading');
+            const resultsElement = document.getElementById('results');
+            const calculateBtn = document.querySelector('.calculate-btn');
+
+            loadingElement.style.display = 'block';
+            resultsElement.classList.remove('show');
+            calculateBtn.disabled = true;
+
+            try {
+                const response = await fetch('http://localhost:8080/api/get-route');
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`서버 응답 오류 (상태: ${response.status}): ${errorText}`);
+                }
+                const data = await response.json();
+                if (data.success) {
+                    displayResults(data);
+                    drawMarkersAndRoute(data.route);
+                } else {
+                    throw new Error(data.error || '알 수 없는 서버 오류가 발생했습니다.');
+                }
+            } catch (error) {
+                console.error('경로 계산 오류:', error);
+                alert(`경로 계산 중 오류가 발생했습니다: ${error.message}\n\nFlask 서버가 실행 중인지, CSV 파일 경로는 올바른지 확인해주세요.`);
+            } finally {
+                loadingElement.style.display = 'none';
+                calculateBtn.disabled = false;
+            }
+        }
+
+        function displayResults(data) {
+            document.getElementById('total-distance').textContent = `${data.total_distance} km`;
+            const routeListElement = document.getElementById('route-list');
+            routeListElement.innerHTML = '';
+
+            data.route.forEach((station, index) => {
+                const routeItem = document.createElement('div');
+                routeItem.className = 'route-item';
+                const routeNumber = document.createElement('div');
+                routeNumber.className = `route-number ${station.type === 'depot' ? 'depot' : ''}`;
+                routeNumber.textContent = index + 1;
+                const routeName = document.createElement('div');
+                routeName.className = 'route-name';
+                routeName.textContent = station.name;
+                routeItem.appendChild(routeNumber);
+                routeItem.appendChild(routeName);
+                routeListElement.appendChild(routeItem);
+            });
+            document.getElementById('results').classList.add('show');
+        }
+
+        // 지도에 마커와 경로를 표시하는 함수
+        function drawMarkersAndRoute(route) {
+            markers.forEach(marker => marker.setMap(null));
+            markers = [];
+            if (polyline) {
+                polyline.setMap(null);
+            }
+
+            // 경로의 각 지점에 번호가 표시된 마커 생성
+            route.forEach((station, index) => {
+                const marker = new google.maps.Marker({
+                    position: { lat: station.lat, lng: station.lon },
+                    map: map,
+                    title: `${index + 1}. ${station.name}`,
+                    label: {
+                        text: String(index + 1), // 마커에 표시할 텍스트 (방문 순서)
+                        color: 'white',          // 글자 색상
+                        fontSize: '14px',        // 글자 크기
+                        fontWeight: 'bold'       // 글자 굵기
+                    },
+                    // 차고지와 일반 대여소 색상 구분
+                    icon: {
+                        path: google.maps.SymbolPath.CIRCLE, // 기본 원형 아이콘 사용
+                        scale: 15, // 아이콘 크기
+                        fillColor: station.type === 'depot' ? '#e74c3c' : '#3498db', // 채우기 색상
+                        fillOpacity: 1,
+                        strokeWeight: 1,
+                        strokeColor: 'white' // 테두리 색상
+                    }
+                });
+                markers.push(marker);
+            });
+
+            const routePath = route.map(station => ({ lat: station.lat, lng: station.lon }));
+            polyline = new google.maps.Polyline({
+                path: routePath,
+                geodesic: true,
+                strokeColor: '#2ecc71',
+                strokeOpacity: 0.8,
+                strokeWeight: 4
+            });
+            polyline.setMap(map);
+
+            const bounds = new google.maps.LatLngBounds();
+            routePath.forEach(position => bounds.extend(position));
+            map.fitBounds(bounds);
+            console.log('경로와 마커를 지도에 표시했습니다.');
+        }
+    </script>
+</body>
+</html>
+```
