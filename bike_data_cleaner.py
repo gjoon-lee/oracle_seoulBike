@@ -418,12 +418,19 @@ if __name__ == "__main__":
     #cleaner.process_file('bike_historical_data/2025_06/tpss_bcycl_od_statnhm_20250607.csv')
     
     # Or process all files in a directory
-    cleaner.process_directory('bike_historical_data/2025_01')
-    cleaner.process_directory('bike_historical_data/2025_02')
-    cleaner.process_directory('bike_historical_data/2025_03')
-    cleaner.process_directory('bike_historical_data/2025_04')
-    cleaner.process_directory('bike_historical_data/2025_05')
-    cleaner.process_directory('bike_historical_data/2025_06')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_01')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_02')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_03')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_04')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_05')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_06')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_07')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_08')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_09')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_10')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_11')
+    cleaner.process_directory('bike_historical_data/Y2024/2024_12')
+
     
     # Get summary
     # summary = cleaner.get_processing_summary()

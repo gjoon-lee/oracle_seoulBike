@@ -4,123 +4,89 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Seoul Bike Share System (따릉이) data pipeline and ML prediction system that:
-- Collects real-time bike availability data from Seoul Open API (2,731+ stations)
-- Processes historical trip data with Korean text encoding (CP949)
-- Engineers 53+ features for time series prediction
-- Trains XGBoost models to predict bike net flow 2 hours ahead
+Seoul Bike Share System (따릉이) demand prediction ML pipeline that processes real-time API data and historical trip records to predict bike station net flow 2 hours ahead using XGBoost.
 
 ## Essential Commands
 
-### Setup
 ```bash
-# Install dependencies
+# Setup environment
 pip install -r requirements.txt
 
-# Create .env file with Seoul Open API keys:
-KEY_BIKE_STATION_MASTER=<your_api_key>
-KEY_BIKE_LIST=<your_api_key>
-```
+# Create .env file with API keys:
+echo "KEY_BIKE_STATION_MASTER=<your_key>" >> .env
+echo "KEY_BIKE_LIST=<your_key>" >> .env
 
-### Running the Pipeline
-```bash
-# 1. Test API connectivity
-python api_test.py
+# Run full pipeline
+python api_test.py                 # Test API connectivity
+python bikeList_load.py            # Start real-time collection (5-min intervals)
+python test.py                     # Process historical CSVs to PostgreSQL
+python feature_engineering.py      # Generate ML features
+python xgboost_train.py            # Train prediction model
 
-# 2. Start real-time data collection (runs every 5 minutes)
-python bikeList_load.py
+# Station and availability data
+python update_station_m.py         # Update station master from API (run once)
+python bike_availability_cleaner.py # Process availability Excel files
 
-# 3. Process historical CSVs into PostgreSQL
-python test.py  # Processes all files in bike_historical_data/
-
-# 4. Run exploratory data analysis
-python bike_eda.py
-
-# 5. Create ML features
-python feature_engineering.py
-
-# 6. Train XGBoost model
-python xgboost_train.py
-```
-
-### Database Operations
-```bash
-# PostgreSQL: bike_data @ localhost:5432
-# User: postgres (password in db_connection.py - needs .env migration)
-
-# Check data:
+# Database checks
+python db_connection.py            # Test PostgreSQL connection
 psql -U postgres -d bike_data -c "SELECT COUNT(*) FROM station_hourly_flow;"
 ```
 
-## Architecture and Data Flow
+## High-Level Architecture
 
-### Data Pipeline Components
+### Data Flow Pipeline
 
-1. **Real-time Collection** (`bikeList_load.py`)
-   - Fetches from Seoul Open API every 5 minutes
-   - Stores in SQLite (`seoul_bike.db`)
-   - Handles API pagination (max 1000 stations/request)
+1. **Data Ingestion** → Two parallel streams:
+   - **Real-time**: Seoul Open API → SQLite (`seoul_bike.db`) via scheduled fetching
+   - **Historical**: Korean CSV files → PostgreSQL via batch processing
 
-2. **Historical Processing** (`bike_data_cleaner.py`)
-   - Reads Korean CSV files (CP949 encoding)
-   - Creates hourly aggregations
-   - Loads to PostgreSQL tables:
-     - `raw_bike_trips`: Individual trips
-     - `station_hourly_flow`: Hourly stats
-     - `data_quality_log`: Processing metadata
+2. **Processing Layer** → Handles encoding and aggregation:
+   - `BikeDataCleaner` class manages CP949 Korean encoding issues
+   - Creates hourly aggregations from raw trip records
+   - Validates data quality and logs processing metrics
 
-3. **Feature Engineering** (`feature_engineering.py`)
-   - Time features with cyclical encoding
-   - Lag features (1h-48h)
-   - Rolling statistics (6h-24h windows)
-   - Station type indicators (residential/office/leisure/mixed)
-   - Rush hour interactions
+3. **Feature Engineering** → Time series feature generation:
+   - `BikeFeatureEngineer` creates 53+ ML features
+   - Lag features (1-48 hours), rolling windows (6-24 hours)
+   - Cyclical time encoding (hour, day, season)
+   - Station profiling (residential/office/leisure/mixed types)
 
-4. **Model Training** (`xgboost_train.py`)
-   - Target: Net flow 2 hours ahead
-   - Time-based split: train_end_date = '2025-05-31'
-   - Saves to `models/` with timestamps
+4. **Model Training** → XGBoost regression:
+   - Target: `net_flow_target_2h` (bikes arrived - departed, 2 hours ahead)
+   - Time-based train/test split at 2025-05-31
+   - Outputs: model artifacts, feature importance, predictions
 
-### Key Data Structures
+### Database Schema
 
-**Historical CSV Format (Korean headers)**:
-```
-기준_날짜 (record_date): YYYYMMDD
-집계_기준 (aggregation_type): 출발시간/도착시간
-기준_시간대 (time_slot): HHMM
-시작_대여소_ID/종료_대여소_ID: Station IDs
-전체_건수 (trip_count): Number of trips
-```
+**PostgreSQL** (main storage):
+- `raw_bike_trips`: Individual trip records with Korean column mappings
+- `station_hourly_flow`: Aggregated hourly metrics per station
+- `station_master`: Station metadata from API (coordinates, addresses)
+- `bike_availability_hourly`: Processed availability data with stockout indicators
+- `rental_station_mapping`: Maps rental numbers to station IDs
+- `data_quality_log`: ETL pipeline monitoring
 
-**Station Hourly Flow Table**:
-```sql
-station_id, flow_date, flow_hour
-bikes_departed, bikes_arrived, net_flow
-day_of_week, is_weekend, season
-avg_trip_duration_min, avg_trip_distance_m
-```
+**SQLite** (real-time buffer):
+- `seoul_bike.db`: Latest station availability snapshots
 
-## Critical Implementation Notes
+### Critical Design Patterns
 
-1. **Korean Encoding**: Always use `encoding='cp949'` for historical CSV files
-2. **Time Series Split**: Maintain temporal validation with fixed train_end_date
-3. **API Rate Limits**: 5-minute intervals for real-time collection
-4. **Database Chunks**: Use chunked inserts for large datasets (10,000 rows/chunk)
-5. **Station Types**: Pre-computed in `station_profiles.csv`
-6. **Logging**: Check `logs/bike_fetch.log` for collection issues
+1. **Encoding Management**: All historical data requires `encoding='cp949'` due to Korean text. The `column_mapping` dict in `BikeDataCleaner` translates garbled headers.
 
-## Directory Structure
+2. **Temporal Integrity**: Features use strict time-based ordering. Never use future data for past predictions. The `train_end_date` parameter ensures proper validation splits.
 
-```
-bike_historical_data/YYYY_MM/  # Historical CSV files by month
-netflow_data/                   # ML feature datasets
-models/                         # Trained model artifacts
-logs/                          # System logs
-```
+3. **Chunked Processing**: Large datasets are processed in 10,000-row chunks to prevent memory issues. See `bike_data_cleaner.py` for implementation.
 
-## Current TODO Items (from ToDo.md)
+4. **Dual Storage Strategy**: SQLite for real-time buffering (fast writes), PostgreSQL for analytical queries (complex joins).
 
-- Implement LightGBM classifier for 2-hour stockout prediction
-- Add SHAP values for model explainability
-- Integrate weather data features
-- Add historical bike availability data
+5. **Station Profiling**: Pre-computed station types in `station_profiles.csv` classify usage patterns without repeated calculations.
+
+6. **SQLAlchemy 2.0 Compatibility**: All raw SQL strings must be wrapped with `text()` from `sqlalchemy`. Use named parameters (`:param`) instead of `%s` placeholders, and pass parameters as dictionaries.
+
+## Configuration Notes
+
+- **Database credentials**: Currently hardcoded in `db_connection.py:15` - migrate to .env
+- **API column names**: Station API uses `RNTLS_ID` (not `RNTL_ID`) and `ADDR2` for station names
+- **API pagination**: Max 1000 stations per request, handled in `bikeList_load.py:25-50`
+- **Logging**: Separate logs for data collection (`bike_fetch.log`) and processing (`bike_cleaning.log`)
+- **Model versioning**: Timestamps appended to all model artifacts in `models/`
