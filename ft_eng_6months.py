@@ -317,8 +317,8 @@ if __name__ == "__main__":
     # Process 6 months of data
     # Adjust dates based on what you have
     features = engineer.create_features_batch(
-        start_date='2025-01-01',
-        end_date='2025-06-30',
+        start_date='2024-01-01',
+        end_date='2024-12-31',
         output_prefix='netflow_features_6m'
     )
     

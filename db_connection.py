@@ -3,17 +3,22 @@ from sqlalchemy import create_engine, text
 import pandas as pd
 from datetime import datetime
 import logging
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Suppress SQLAlchemy's verbose logging
 logging.getLogger('sqlalchemy.engine').setLevel(logging.WARNING)
 
-# Database configuration
+# Database configuration from environment variables
 DB_CONFIG = {
-    'host': 'localhost',
-    'database': 'bike_data',
-    'user': 'postgres',
-    'password': '123Ryanlee!',
-    'port': 5432
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'database': os.getenv('DB_NAME', 'bike_data'),
+    'user': os.getenv('DB_USER', 'postgres'),
+    'password': os.getenv('DB_PASSWORD'),
+    'port': int(os.getenv('DB_PORT', 5432))
 }
 
 
@@ -34,6 +39,10 @@ class BikeDataDB:
     def connect(self):
         """Create SQLAlchemy engine for pandas integration"""
         try:
+            # Check if password is set
+            if not DB_CONFIG['password']:
+                raise ValueError("Database password not found. Please set DB_PASSWORD in your .env file")
+            
             # Build connection string
             conn_string = f"postgresql://{DB_CONFIG['user']}:{DB_CONFIG['password']}@{DB_CONFIG['host']}:{DB_CONFIG['port']}/{DB_CONFIG['database']}"
             
@@ -49,16 +58,16 @@ class BikeDataDB:
         """Test database connection"""
         try:
             with self.engine.connect() as conn:
-                result = conn.execute("SELECT version();")
+                result = conn.execute(text("SELECT version();"))
                 version = result.fetchone()[0]
                 self.logger.info(f"PostgreSQL version: {version}")
                 
                 # Check tables
-                result = conn.execute("""
+                result = conn.execute(text("""
                     SELECT table_name 
                     FROM information_schema.tables 
                     WHERE table_schema = 'public'
-                """)
+                """))
                 tables = [row[0] for row in result]
                 self.logger.info(f"Tables found: {tables}")
                 return True
@@ -139,17 +148,17 @@ if __name__ == "__main__":
     
     # Test connection
     if db.test_connection():
-        print("\n✅ PostgreSQL is ready for your Seoul Bikes project!")
+        print("\n[SUCCESS] PostgreSQL is ready for your Seoul Bikes project!")
         
         # Example: Check if tables exist
-        tables_check = db.read_query("""
+        tables_check = db.read_query(text("""
             SELECT table_name, 
                    pg_size_pretty(pg_total_relation_size(table_name::regclass)) as size
             FROM information_schema.tables 
             WHERE table_schema = 'public'
             ORDER BY table_name
-        """)
+        """))
         print("\nYour tables:")
         print(tables_check)
     else:
-        print("\n❌ Connection failed. Check your PostgreSQL installation.")
+        print("\n[ERROR] Connection failed. Check your PostgreSQL installation.")
