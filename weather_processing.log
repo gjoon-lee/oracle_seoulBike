@@ -1,0 +1,16 @@
+2025-08-13 14:40:42,703 - WeatherProcessor - INFO - Found 1 weather files to process
+2025-08-13 14:40:42,703 - WeatherProcessor - INFO - 
+============================================================
+2025-08-13 14:40:42,703 - WeatherProcessor - INFO - Processing: OBS_ASOS_20240101_20241231.csv
+2025-08-13 14:40:42,703 - WeatherProcessor - INFO - ============================================================
+2025-08-13 14:40:42,754 - WeatherProcessor - INFO - Dropped columns: ['지점', '지점명']
+2025-08-13 14:40:42,778 - WeatherProcessor - INFO - 
+        Weather processing complete:
+        - Initial rows: 8,784
+        - Final rows: 8,784
+        - Removed: 0
+        - Processing time: 0.03 seconds
+        
+2025-08-13 14:40:42,778 - WeatherProcessor - INFO - Loading weather data to PostgreSQL...
+2025-08-13 14:40:46,142 - WeatherProcessor - INFO - 
+Processing complete: 1/1 files successful

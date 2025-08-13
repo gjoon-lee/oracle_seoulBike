@@ -69,27 +69,40 @@ class WeatherDataProcessor:
         start_time = time.time()
         initial_rows = len(df)
         
-        # 1. Rename columns
+        # 1. Drop station ID and station name columns (first two columns)
+        # These columns are '지점' (station ID) and '지점명' (station name)
+        columns_to_drop = []
+        if '지점' in df.columns:
+            columns_to_drop.append('지점')
+            df = df.drop(columns=['지점'])
+        if '지점명' in df.columns:
+            columns_to_drop.append('지점명')
+            df = df.drop(columns=['지점명'])
+        
+        if columns_to_drop:
+            self.logger.info(f"Dropped columns: {columns_to_drop}")
+        
+        # 2. Rename columns
         df = df.rename(columns=self.column_mapping)
         
-        # 2. Parse datetime
+        # 3. Parse datetime
         df['datetime'] = pd.to_datetime(df['datetime'])
         df['date'] = df['datetime'].dt.date
         df['hour'] = df['datetime'].dt.hour
         
-        # 3. Handle missing values
+        # 4. Handle missing values
         df['precipitation'] = df['precipitation'].fillna(0)
         df['snow_depth'] = df['snow_depth'].fillna(0)
         
         # For temperature/humidity/wind, use forward fill then backward fill
-        df['temperature'] = df['temperature'].fillna(method='ffill').fillna(method='bfill')
-        df['humidity'] = df['humidity'].fillna(method='ffill').fillna(method='bfill')
-        df['wind_speed'] = df['wind_speed'].fillna(method='ffill').fillna(method='bfill')
+        df['temperature'] = df['temperature'].ffill().bfill()
+        df['humidity'] = df['humidity'].ffill().bfill()
+        df['wind_speed'] = df['wind_speed'].ffill().bfill()
         
-        # 4. Remove any remaining rows with missing critical data
+        # 5. Remove any remaining rows with missing critical data
         df = df.dropna(subset=['temperature', 'humidity'])
         
-        # 5. Create simple derived features
+        # 6. Create simple derived features
         df['is_raining'] = (df['precipitation'] > 0).astype(int)
         df['is_snowing'] = (df['snow_depth'] > 0).astype(int)
         df['is_freezing'] = (df['temperature'] < 0).astype(int)
@@ -109,13 +122,13 @@ class WeatherDataProcessor:
             (df['wind_speed'] > 10).astype(int)
         )
         
-        # 6. Simple feels-like temperature
+        # 7. Simple feels-like temperature
         df['feels_like'] = df['temperature'].copy()
         # Wind chill when cold
         cold_mask = df['temperature'] < 10
         df.loc[cold_mask, 'feels_like'] = df.loc[cold_mask, 'temperature'] - (df.loc[cold_mask, 'wind_speed'] * 0.7)
         
-        # 7. Drop the original datetime column (we have date and hour separately)
+        # 8. Drop the original datetime column (we have date and hour separately)
         df = df.drop(columns=['datetime'])
         
         # Remove duplicates (in case same hour appears twice)
@@ -183,7 +196,9 @@ class WeatherDataProcessor:
 # Create the weather table in PostgreSQL
 def create_weather_table(db_connection):
     """Create weather_hourly table"""
-    create_sql = """
+    from sqlalchemy import text
+    
+    create_sql = text("""
     CREATE TABLE IF NOT EXISTS weather_hourly (
         date DATE NOT NULL,
         hour INTEGER NOT NULL,
@@ -200,13 +215,15 @@ def create_weather_table(db_connection):
         weather_severity INTEGER,
         PRIMARY KEY (date, hour)
     );
+    """)
     
-    CREATE INDEX IF NOT EXISTS idx_weather_date ON weather_hourly(date);
-    CREATE INDEX IF NOT EXISTS idx_weather_comfortable ON weather_hourly(is_comfortable);
-    """
+    create_index_date = text("CREATE INDEX IF NOT EXISTS idx_weather_date ON weather_hourly(date);")
+    create_index_comfortable = text("CREATE INDEX IF NOT EXISTS idx_weather_comfortable ON weather_hourly(is_comfortable);")
     
     db_connection.execute_query(create_sql)
-    print("✅ Weather table created")
+    db_connection.execute_query(create_index_date)
+    db_connection.execute_query(create_index_comfortable)
+    print("Weather table created successfully")
 
 
 # Example usage

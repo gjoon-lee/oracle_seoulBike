@@ -78,7 +78,9 @@ class BikeDataDB:
     def execute_query(self, query, params=None):
         """Execute a raw SQL query"""
         with self.engine.connect() as conn:
-            return conn.execute(query, params)
+            result = conn.execute(query, params)
+            conn.commit()
+            return result
     
     def insert_dataframe(self, df, table_name, if_exists='append'):
         """Insert pandas DataFrame to PostgreSQL"""
