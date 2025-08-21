@@ -1,0 +1,130 @@
+2025-08-13 15:20:24,670 - AvailabilityProcessor - INFO - Found 12 availability files to process
+2025-08-13 15:20:24,670 - AvailabilityProcessor - INFO - 
+============================================================
+2025-08-13 15:20:24,670 - AvailabilityProcessor - INFO - Processing: data_2401.csv
+2025-08-13 15:20:24,670 - AvailabilityProcessor - INFO - ============================================================
+2025-08-13 15:20:24,882 - AvailabilityProcessor - INFO - Building two-step station mapping...
+2025-08-13 15:20:24,900 - AvailabilityProcessor - INFO - Step 1: Loading coordinates from station_info.xlsx
+2025-08-13 15:20:26,039 - AvailabilityProcessor - INFO - Found 2780 stations in Excel, mapped 5560 with valid coordinates
+2025-08-13 15:20:26,040 - AvailabilityProcessor - INFO - Step 2: Matching coordinates with station master...
+2025-08-13 15:20:26,051 - AvailabilityProcessor - INFO - Loaded 3380 stations from station_master table
+2025-08-13 15:20:27,657 - AvailabilityProcessor - INFO - 
+        Mapping complete:
+        - Total unique rental stations: 2780
+        - Matched (5dp exact): 2414
+        - Matched (4dp ~10m): 232
+        - Matched (3dp ~100m): 83
+        - Total matched: 2729
+        - Unmatched: 51
+        
+2025-08-13 15:20:27,657 - AvailabilityProcessor - WARNING - First 5 unmatched stations: [{'rental_number': '00302', 'lat': 37.57594681, 'lon': 126.97406006}, {'rental_number': '00827', 'lat': 37.54188538, 'lon': 126.97966003}, {'rental_number': '00834', 'lat': 37.53900909, 'lon': 126.96138}, {'rental_number': '00854', 'lat': 37.53872681, 'lon': 127.00154877}, {'rental_number': '03559', 'lat': 37.54590988, 'lon': 127.04460144}]
+2025-08-13 15:20:29,235 - AvailabilityProcessor - INFO - Read 1896642 rows from data_2401.csv
+2025-08-13 15:20:30,744 - AvailabilityProcessor - WARNING - Found 436 unmapped rental numbers in data
+2025-08-13 15:20:31,204 - AvailabilityProcessor - INFO - Mapped 1627194 out of 1896642 rows
+2025-08-13 15:22:57,974 - AvailabilityProcessor - INFO - 
+============================================================
+2025-08-13 15:22:57,974 - AvailabilityProcessor - INFO - Processing: data_2401.csv
+2025-08-13 15:22:57,974 - AvailabilityProcessor - INFO - ============================================================
+2025-08-13 15:22:58,147 - AvailabilityProcessor - INFO - Loaded 2729 cached mappings
+2025-08-13 15:23:00,207 - AvailabilityProcessor - INFO - Read 1896642 rows from data_2401.csv
+2025-08-13 15:23:01,696 - AvailabilityProcessor - WARNING - Found 436 unmapped rental numbers in data
+2025-08-13 15:23:02,062 - AvailabilityProcessor - INFO - Mapped 1627194 out of 1896642 rows
+2025-08-13 15:31:26,998 - AvailabilityProcessor - INFO - Found 1 availability files to process
+2025-08-13 15:31:26,998 - AvailabilityProcessor - INFO - 
+============================================================
+2025-08-13 15:31:26,999 - AvailabilityProcessor - INFO - Processing: data_2401.csv
+2025-08-13 15:31:26,999 - AvailabilityProcessor - INFO - ============================================================
+2025-08-13 15:31:27,112 - AvailabilityProcessor - INFO - Loaded 2729 cached mappings
+2025-08-13 15:31:28,864 - AvailabilityProcessor - INFO - Read 1896642 rows from data_2401.csv
+2025-08-13 15:31:30,225 - AvailabilityProcessor - WARNING - Found 436 unmapped rental numbers in data
+2025-08-13 15:31:30,560 - AvailabilityProcessor - INFO - Mapped 1627194 out of 1896642 rows
+2025-08-13 15:37:51,661 - AvailabilityProcessor - INFO - 
+        Processing complete:
+        - Original rows: 1,896,642
+        - Mapped rows: 1,627,194
+        - Stations: 2628
+        - Hourly records: 1,624,104
+        - Stockout hours: 427,955
+        - Time: 384.7s
+        
+2025-08-13 15:37:52,524 - AvailabilityProcessor - INFO - 
+Processing complete: 1/1 files successful
+2025-08-13 16:33:22,144 - AvailabilityProcessor - INFO - Found 1 availability files to process
+2025-08-13 16:33:22,145 - AvailabilityProcessor - INFO - 
+============================================================
+2025-08-13 16:33:22,145 - AvailabilityProcessor - INFO - Processing: data_2401.csv
+2025-08-13 16:33:22,145 - AvailabilityProcessor - INFO - ============================================================
+2025-08-13 16:33:22,260 - AvailabilityProcessor - INFO - Building address-based station mapping...
+2025-08-13 16:33:22,292 - AvailabilityProcessor - INFO - Step 1: Loading addresses from station_info.xlsx
+2025-08-13 16:33:23,184 - AvailabilityProcessor - INFO - Found 2780 stations in Excel, mapped 5560 with valid addresses
+2025-08-13 16:33:23,184 - AvailabilityProcessor - INFO - Step 2: Matching addresses with station master...
+2025-08-13 16:33:23,194 - AvailabilityProcessor - INFO - Loaded 3380 stations from station_master table
+2025-08-13 16:34:24,276 - AvailabilityProcessor - INFO - 
+        Address-based mapping complete:
+        - Total unique rental stations: 2780
+        - Matched (exact address): 979
+        - Matched (partial address): 386
+        - Total matched: 1365
+        - Unmatched: 1415
+        - Success rate: 49.1%
+        
+2025-08-13 16:34:24,276 - AvailabilityProcessor - WARNING - First 5 unmatched stations:
+2025-08-13 16:34:24,277 - AvailabilityProcessor - WARNING -   00301: 서울특별시 종로구 사직로 지하130 경복궁역 7번출구 앞...
+2025-08-13 16:34:24,277 - AvailabilityProcessor - WARNING -   00302: 서울특별시 종로구 사직로 지하130 경복궁역 4번출구 뒤...
+2025-08-13 16:34:24,277 - AvailabilityProcessor - WARNING -   00307: 서울특별시 종로구 새문안로 55 서울역사박물관 앞...
+2025-08-13 16:34:24,277 - AvailabilityProcessor - WARNING -   00308: 서울특별시 종로구 새문안로 82 광화문S타워 앞...
+2025-08-13 16:34:24,277 - AvailabilityProcessor - WARNING -   00314: 서울특별시 종로구 삼청로 30 국립현대미술관 서울관...
+2025-08-13 16:34:25,746 - AvailabilityProcessor - INFO - Read 1896642 rows from data_2401.csv
+2025-08-13 16:34:27,103 - AvailabilityProcessor - WARNING - Found 1721 unmapped rental numbers in data
+2025-08-13 16:34:27,350 - AvailabilityProcessor - INFO - Mapped 833064 out of 1896642 rows (43.9%)
+2025-08-13 16:39:40,266 - AvailabilityProcessor - INFO - Found 1 availability files to process
+2025-08-13 16:39:40,267 - AvailabilityProcessor - INFO - 
+============================================================
+2025-08-13 16:39:40,267 - AvailabilityProcessor - INFO - Processing: data_2401.csv
+2025-08-13 16:39:40,267 - AvailabilityProcessor - INFO - ============================================================
+2025-08-13 16:39:40,372 - AvailabilityProcessor - INFO - Building address-based station mapping...
+2025-08-13 16:39:40,374 - AvailabilityProcessor - INFO - Step 1: Loading addresses from station_info.xlsx
+2025-08-13 16:39:41,269 - AvailabilityProcessor - INFO - Found 2780 stations in Excel, mapped 5560 with valid addresses
+2025-08-13 16:39:41,269 - AvailabilityProcessor - INFO - Step 2: Matching addresses with station master...
+2025-08-13 16:39:41,277 - AvailabilityProcessor - INFO - Loaded 3380 stations from station_master table
+2025-08-13 16:41:51,441 - AvailabilityProcessor - INFO - 
+        Address-based mapping complete:
+        - Total unique rental stations: 2780
+        - Matched (exact address): 1423
+        - Matched (partial address): 264
+        - Total matched: 1687
+        - Unmatched: 1093
+        - Success rate: 60.7%
+        
+2025-08-13 16:41:51,442 - AvailabilityProcessor - WARNING - First 5 unmatched stations:
+2025-08-13 16:41:51,442 - AvailabilityProcessor - WARNING -   00302: 서울특별시 종로구 사직로 지하130 경복궁역 4번출구 뒤...
+2025-08-13 16:41:51,442 - AvailabilityProcessor - WARNING -   00335: 서울특별시 종로구 종로 지하129 15번출구 앞...
+2025-08-13 16:41:51,442 - AvailabilityProcessor - WARNING -   00344: 서울특별시 종로구 율곡로 259 성균관대 E하우스 앞...
+2025-08-13 16:41:51,442 - AvailabilityProcessor - WARNING -   00351: 서울특별시 종로구 청운동 108-22 청운초교 앞 삼거리...
+2025-08-13 16:41:51,442 - AvailabilityProcessor - WARNING -   00362: 서울특별시 종로구 청계천로 407 청계8가 사거리...
+2025-08-13 16:41:53,229 - AvailabilityProcessor - INFO - Read 1896642 rows from data_2401.csv
+2025-08-13 16:41:54,646 - AvailabilityProcessor - WARNING - Found 1399 unmapped rental numbers in data
+2025-08-13 16:41:54,913 - AvailabilityProcessor - INFO - Mapped 1032060 out of 1896642 rows (54.4%)
+2025-08-13 17:27:13,628 - AvailabilityProcessor - INFO - Found 12 availability files to process
+2025-08-13 17:27:13,732 - AvailabilityProcessor - INFO - Loaded 2779 station mappings from database
+2025-08-13 17:27:13,732 - AvailabilityProcessor - INFO - Coverage: 99.96% of all stations
+2025-08-13 17:27:13,732 - AvailabilityProcessor - INFO - Processing file 1/12: data_2401.csv
+2025-08-13 17:27:13,732 - AvailabilityProcessor - INFO - 
+============================================================
+2025-08-13 17:27:13,732 - AvailabilityProcessor - INFO - Processing: data_2401.csv
+2025-08-13 17:27:13,732 - AvailabilityProcessor - INFO - ============================================================
+2025-08-13 17:27:15,169 - AvailabilityProcessor - INFO - Read 1,896,642 rows from data_2401.csv
+2025-08-13 17:27:16,345 - AvailabilityProcessor - INFO - Mapping results: 1,657,476/1,896,642 records (87.4%)
+2025-08-13 17:27:16,445 - AvailabilityProcessor - WARNING - Unmapped rental numbers: 387 unique stations
+2025-08-13 17:46:52,841 - AvailabilityProcessor - INFO - Found 12 availability files to process
+2025-08-13 17:46:52,936 - AvailabilityProcessor - INFO - Loaded 2779 station mappings from database
+2025-08-13 17:46:52,936 - AvailabilityProcessor - INFO - Coverage: 99.96% of all stations
+2025-08-13 17:46:52,936 - AvailabilityProcessor - INFO - Processing file 1/12: data_2401.csv
+2025-08-13 17:46:52,936 - AvailabilityProcessor - INFO - 
+============================================================
+2025-08-13 17:46:52,936 - AvailabilityProcessor - INFO - Processing: data_2401.csv
+2025-08-13 17:46:52,936 - AvailabilityProcessor - INFO - ============================================================
+2025-08-13 17:46:54,447 - AvailabilityProcessor - INFO - Read 1,896,642 rows from data_2401.csv
+2025-08-13 17:46:55,720 - AvailabilityProcessor - INFO - Mapping results: 1,657,476/1,896,642 records (87.4%)
+2025-08-13 17:46:55,834 - AvailabilityProcessor - WARNING - Unmapped rental numbers: 387 unique stations
+2025-08-13 17:46:56,799 - AvailabilityProcessor - INFO - Saved unmapped data to unmapped_data_2401.csv

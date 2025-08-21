@@ -1,0 +1,114 @@
+2025-08-21 14:53:45,827 - features.feature_generator - WARNING - Station profiles not found, will use defaults
+2025-08-21 14:53:45,829 - services.prediction_service - INFO - Loading model from c:\Users\82103\OneDrive\Desktop\oracle_drr\realtime_prediction\models\lightgbm_stockout_model_20250819_072922.pkl
+2025-08-21 14:53:53,339 - services.prediction_service - INFO - Model and thresholds loaded successfully
+2025-08-21 14:53:53,405 - __main__ - INFO - Starting Seoul Bike Stockout Prediction API
+2025-08-21 14:53:53,406 - __main__ - INFO - Background refresh started
+2025-08-21 14:53:53,407 - services.prediction_service - INFO - Generating features for all stations...
+2025-08-21 14:53:53,407 - features.feature_generator - INFO - Fetching real-time bike availability...
+2025-08-21 14:53:53,407 - collectors.realtime_bike_collector - INFO - Fetching stations 1 to 1000
+2025-08-21 14:53:53,733 - collectors.realtime_bike_collector - INFO - Total stations to fetch: 1000
+2025-08-21 14:53:53,742 - collectors.realtime_bike_collector - INFO - Successfully fetched 1000 stations
+2025-08-21 14:53:53,749 - features.feature_generator - INFO - Fetching current weather...
+2025-08-21 14:53:53,815 - collectors.realtime_weather_collector - ERROR - KMA API error: Expecting value: line 1 column 1 (char 0)
+2025-08-21 14:53:53,815 - collectors.realtime_weather_collector - WARNING - No OpenWeatherMap API key configured
+2025-08-21 14:53:53,816 - collectors.realtime_weather_collector - WARNING - Using default weather values
+2025-08-21 14:53:53,817 - features.feature_generator - INFO - Adding temporal features...
+2025-08-21 14:53:53,822 - features.feature_generator - INFO - Adding derived features...
+2025-08-21 14:53:53,824 - features.feature_generator - INFO - Adding lag features...
+2025-08-21 14:53:53,826 - collectors.historical_data_loader - INFO - Loading 169 hours of availability history
+2025-08-21 14:53:54,041 - collectors.historical_data_loader - WARNING - No availability history found
+2025-08-21 14:53:54,042 - collectors.historical_data_loader - INFO - Loading 169 hours of netflow history
+2025-08-21 14:53:54,223 - collectors.historical_data_loader - WARNING - No netflow history found
+2025-08-21 14:53:54,224 - collectors.historical_data_loader - INFO - Loading 169 hours of weather history
+2025-08-21 14:53:54,230 - collectors.historical_data_loader - WARNING - No weather history found
+2025-08-21 14:53:54,231 - collectors.historical_data_loader - WARNING - No historical data available
+2025-08-21 14:53:54,231 - collectors.historical_data_loader - WARNING - No historical data for lag features
+2025-08-21 14:53:54,237 - features.feature_generator - INFO - Adding rolling features...
+2025-08-21 14:53:54,237 - collectors.historical_data_loader - INFO - Loading 168 hours of availability history
+2025-08-21 14:53:54,243 - collectors.historical_data_loader - WARNING - No availability history found
+2025-08-21 14:53:54,243 - collectors.historical_data_loader - INFO - Loading 168 hours of netflow history
+2025-08-21 14:53:54,256 - collectors.historical_data_loader - WARNING - No netflow history found
+2025-08-21 14:53:54,256 - collectors.historical_data_loader - INFO - Loading 168 hours of weather history
+2025-08-21 14:53:54,258 - collectors.historical_data_loader - WARNING - No weather history found
+2025-08-21 14:53:54,258 - collectors.historical_data_loader - WARNING - No historical data available
+2025-08-21 14:53:54,259 - collectors.historical_data_loader - WARNING - No historical data for rolling features
+2025-08-21 14:53:54,263 - features.feature_generator - INFO - Adding station profile features...
+2025-08-21 14:53:54,361 - features.feature_generator - INFO - Generated 110 features for 1000 stations
+2025-08-21 14:53:54,366 - services.prediction_service - INFO - Generating predictions for 1000 stations...
+2025-08-21 14:53:54,366 - __main__ - ERROR - Background refresh failed: 'Booster' object has no attribute 'predict_proba'
+2025-08-21 14:53:54,366 - __main__ - INFO - API startup complete
+2025-08-21 14:58:51,526 - __main__ - INFO - Generating predictions for all stations (mode: balanced)
+2025-08-21 14:58:51,527 - services.prediction_service - INFO - Generating features for all stations...
+2025-08-21 14:58:51,527 - features.feature_generator - INFO - Fetching real-time bike availability...
+2025-08-21 14:58:51,527 - collectors.realtime_bike_collector - INFO - Fetching stations 1 to 1000
+2025-08-21 14:58:51,831 - collectors.realtime_bike_collector - INFO - Total stations to fetch: 1000
+2025-08-21 14:58:51,841 - collectors.realtime_bike_collector - INFO - Successfully fetched 1000 stations
+2025-08-21 14:58:51,846 - features.feature_generator - INFO - Fetching current weather...
+2025-08-21 14:58:51,923 - collectors.realtime_weather_collector - ERROR - KMA API error: Expecting value: line 1 column 1 (char 0)
+2025-08-21 14:58:51,924 - collectors.realtime_weather_collector - WARNING - No OpenWeatherMap API key configured
+2025-08-21 14:58:51,924 - collectors.realtime_weather_collector - INFO - Using cached weather data
+2025-08-21 14:58:51,926 - features.feature_generator - INFO - Adding temporal features...
+2025-08-21 14:58:51,932 - features.feature_generator - INFO - Adding derived features...
+2025-08-21 14:58:51,934 - features.feature_generator - INFO - Adding lag features...
+2025-08-21 14:58:51,935 - collectors.historical_data_loader - INFO - Loading 169 hours of availability history
+2025-08-21 14:58:51,945 - collectors.historical_data_loader - WARNING - No availability history found
+2025-08-21 14:58:51,945 - collectors.historical_data_loader - INFO - Loading 169 hours of netflow history
+2025-08-21 14:58:51,971 - collectors.historical_data_loader - WARNING - No netflow history found
+2025-08-21 14:58:51,971 - collectors.historical_data_loader - INFO - Loading 169 hours of weather history
+2025-08-21 14:58:51,974 - collectors.historical_data_loader - WARNING - No weather history found
+2025-08-21 14:58:51,975 - collectors.historical_data_loader - WARNING - No historical data available
+2025-08-21 14:58:51,975 - collectors.historical_data_loader - WARNING - No historical data for lag features
+2025-08-21 14:58:51,985 - features.feature_generator - INFO - Adding rolling features...
+2025-08-21 14:58:51,986 - collectors.historical_data_loader - INFO - Loading 168 hours of availability history
+2025-08-21 14:58:51,995 - collectors.historical_data_loader - WARNING - No availability history found
+2025-08-21 14:58:51,996 - collectors.historical_data_loader - INFO - Loading 168 hours of netflow history
+2025-08-21 14:58:52,014 - collectors.historical_data_loader - WARNING - No netflow history found
+2025-08-21 14:58:52,014 - collectors.historical_data_loader - INFO - Loading 168 hours of weather history
+2025-08-21 14:58:52,016 - collectors.historical_data_loader - WARNING - No weather history found
+2025-08-21 14:58:52,017 - collectors.historical_data_loader - WARNING - No historical data available
+2025-08-21 14:58:52,017 - collectors.historical_data_loader - WARNING - No historical data for rolling features
+2025-08-21 14:58:52,024 - features.feature_generator - INFO - Adding station profile features...
+2025-08-21 14:58:52,109 - features.feature_generator - INFO - Generated 110 features for 1000 stations
+2025-08-21 14:58:52,113 - services.prediction_service - INFO - Generating predictions for 1000 stations...
+2025-08-21 14:58:52,113 - __main__ - ERROR - Prediction error: 'Booster' object has no attribute 'predict_proba'
+2025-08-21 14:58:59,919 - __main__ - INFO - Shutting down API
+2025-08-21 14:59:06,348 - features.feature_generator - WARNING - Station profiles not found, will use defaults
+2025-08-21 14:59:06,348 - services.prediction_service - INFO - Loading model from c:\Users\82103\OneDrive\Desktop\oracle_drr\realtime_prediction\models\lightgbm_stockout_model_20250819_072922.pkl
+2025-08-21 14:59:07,780 - services.prediction_service - INFO - Model and thresholds loaded successfully
+2025-08-21 14:59:07,856 - __main__ - INFO - Starting Seoul Bike Stockout Prediction API
+2025-08-21 14:59:07,857 - __main__ - INFO - Background refresh started
+2025-08-21 14:59:07,857 - services.prediction_service - INFO - Generating features for all stations...
+2025-08-21 14:59:07,857 - features.feature_generator - INFO - Fetching real-time bike availability...
+2025-08-21 14:59:07,858 - collectors.realtime_bike_collector - INFO - Fetching stations 1 to 1000
+2025-08-21 14:59:08,169 - collectors.realtime_bike_collector - INFO - Total stations to fetch: 1000
+2025-08-21 14:59:08,174 - collectors.realtime_bike_collector - INFO - Successfully fetched 1000 stations
+2025-08-21 14:59:08,178 - features.feature_generator - INFO - Fetching current weather...
+2025-08-21 14:59:08,243 - collectors.realtime_weather_collector - ERROR - KMA API error: Expecting value: line 1 column 1 (char 0)
+2025-08-21 14:59:08,244 - collectors.realtime_weather_collector - WARNING - No OpenWeatherMap API key configured
+2025-08-21 14:59:08,244 - collectors.realtime_weather_collector - WARNING - Using default weather values
+2025-08-21 14:59:08,246 - features.feature_generator - INFO - Adding temporal features...
+2025-08-21 14:59:08,249 - features.feature_generator - INFO - Adding derived features...
+2025-08-21 14:59:08,251 - features.feature_generator - INFO - Adding lag features...
+2025-08-21 14:59:08,251 - collectors.historical_data_loader - INFO - Loading 169 hours of availability history
+2025-08-21 14:59:08,357 - collectors.historical_data_loader - WARNING - No availability history found
+2025-08-21 14:59:08,358 - collectors.historical_data_loader - INFO - Loading 169 hours of netflow history
+2025-08-21 14:59:08,381 - collectors.historical_data_loader - WARNING - No netflow history found
+2025-08-21 14:59:08,381 - collectors.historical_data_loader - INFO - Loading 169 hours of weather history
+2025-08-21 14:59:08,387 - collectors.historical_data_loader - WARNING - No weather history found
+2025-08-21 14:59:08,388 - collectors.historical_data_loader - WARNING - No historical data available
+2025-08-21 14:59:08,388 - collectors.historical_data_loader - WARNING - No historical data for lag features
+2025-08-21 14:59:08,396 - features.feature_generator - INFO - Adding rolling features...
+2025-08-21 14:59:08,397 - collectors.historical_data_loader - INFO - Loading 168 hours of availability history
+2025-08-21 14:59:08,404 - collectors.historical_data_loader - WARNING - No availability history found
+2025-08-21 14:59:08,405 - collectors.historical_data_loader - INFO - Loading 168 hours of netflow history
+2025-08-21 14:59:08,418 - collectors.historical_data_loader - WARNING - No netflow history found
+2025-08-21 14:59:08,419 - collectors.historical_data_loader - INFO - Loading 168 hours of weather history
+2025-08-21 14:59:08,421 - collectors.historical_data_loader - WARNING - No weather history found
+2025-08-21 14:59:08,422 - collectors.historical_data_loader - WARNING - No historical data available
+2025-08-21 14:59:08,422 - collectors.historical_data_loader - WARNING - No historical data for rolling features
+2025-08-21 14:59:08,427 - features.feature_generator - INFO - Adding station profile features...
+2025-08-21 14:59:08,496 - features.feature_generator - INFO - Generated 110 features for 1000 stations
+2025-08-21 14:59:08,499 - services.prediction_service - INFO - Generating predictions for 1000 stations...
+2025-08-21 14:59:08,508 - services.prediction_service - INFO - Predictions complete: 193 stations at risk
+2025-08-21 14:59:08,517 - __main__ - INFO - Background refresh completed
+2025-08-21 14:59:08,518 - __main__ - INFO - API startup complete

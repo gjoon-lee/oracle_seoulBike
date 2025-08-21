@@ -1,0 +1,409 @@
+"""
+Historical data loader from PostgreSQL database
+Loads 14 days of historical data for lag feature calculation
+"""
+
+import pandas as pd
+import numpy as np
+from datetime import datetime, timedelta
+from typing import Dict, Optional, List
+import logging
+from sqlalchemy import create_engine, text
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+
+from config.config import Config
+from db_connection import BikeDataDB
+
+logger = logging.getLogger(__name__)
+
+class HistoricalDataLoader:
+    """Loads historical data from PostgreSQL for feature engineering"""
+    
+    def __init__(self):
+        self.db = BikeDataDB()
+        self.db.connect()
+        self.window_hours = Config.HISTORICAL_WINDOW_HOURS  # 168 hours (7 days)
+        self.cache = {}
+        
+    def load_availability_history(self, 
+                                 station_ids: Optional[List[str]] = None,
+                                 hours: int = None) -> pd.DataFrame:
+        """Load historical availability data"""
+        if hours is None:
+            hours = self.window_hours
+        
+        start_date = datetime.now() - timedelta(hours=hours)
+        
+        try:
+            query_base = f"""
+                SELECT 
+                    station_id,
+                    date,
+                    hour,
+                    available_bikes,
+                    station_capacity,
+                    available_racks,
+                    is_stockout,
+                    is_nearly_empty,
+                    is_nearly_full
+                FROM bike_availability_hourly
+                WHERE date >= '{start_date.date()}'
+            """
+            
+            if station_ids:
+                station_list = "', '".join(station_ids)
+                query_base += f" AND station_id IN ('{station_list}')"
+            
+            query_base += " ORDER BY station_id, date, hour"
+            
+            logger.info(f"Loading {hours} hours of availability history")
+            df = self.db.read_query(text(query_base))
+            
+            if not df.empty:
+                # Create datetime column
+                df['datetime'] = pd.to_datetime(df['date'].astype(str) + ' ' + 
+                                               df['hour'].astype(str) + ':00:00')
+                
+                # Calculate derived features
+                df['utilization_rate'] = df['available_bikes'] / df['station_capacity']
+                df['utilization_rate'] = df['utilization_rate'].fillna(0)
+                df['capacity_pressure'] = 1 - (df['available_racks'] / df['station_capacity'])
+                df['capacity_pressure'] = df['capacity_pressure'].fillna(1)
+                
+                logger.info(f"Loaded {len(df)} availability records for {df['station_id'].nunique()} stations")
+            else:
+                logger.warning("No availability history found")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error loading availability history: {e}")
+            return pd.DataFrame()
+    
+    def load_netflow_history(self,
+                           station_ids: Optional[List[str]] = None,
+                           hours: int = None) -> pd.DataFrame:
+        """Load historical net flow data"""
+        if hours is None:
+            hours = self.window_hours
+        
+        start_date = datetime.now() - timedelta(hours=hours)
+        
+        try:
+            query_base = f"""
+                SELECT 
+                    station_id,
+                    flow_date as date,
+                    flow_hour as hour,
+                    bikes_departed,
+                    bikes_arrived,
+                    net_flow,
+                    day_of_week,
+                    is_weekend,
+                    avg_trip_duration_min,
+                    avg_trip_distance_m
+                FROM station_hourly_flow
+                WHERE flow_date >= '{start_date.date()}'
+            """
+            
+            if station_ids:
+                station_list = "', '".join(station_ids)
+                query_base += f" AND station_id IN ('{station_list}')"
+            
+            query_base += " ORDER BY station_id, flow_date, flow_hour"
+            
+            logger.info(f"Loading {hours} hours of netflow history")
+            df = self.db.read_query(text(query_base))
+            
+            if not df.empty:
+                # Create datetime column
+                df['datetime'] = pd.to_datetime(df['date'].astype(str) + ' ' + 
+                                               df['hour'].astype(str) + ':00:00')
+                
+                # Calculate total activity
+                df['total_activity'] = df['bikes_departed'] + df['bikes_arrived']
+                
+                logger.info(f"Loaded {len(df)} netflow records for {df['station_id'].nunique()} stations")
+            else:
+                logger.warning("No netflow history found")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error loading netflow history: {e}")
+            return pd.DataFrame()
+    
+    def load_weather_history(self, hours: int = None) -> pd.DataFrame:
+        """Load historical weather data"""
+        if hours is None:
+            hours = self.window_hours
+        
+        start_date = datetime.now() - timedelta(hours=hours)
+        
+        try:
+            query = text(f"""
+                SELECT 
+                    date,
+                    hour,
+                    temperature,
+                    humidity,
+                    precipitation,
+                    wind_speed,
+                    feels_like,
+                    is_raining,
+                    is_snowing,
+                    weather_severity
+                FROM weather_hourly
+                WHERE date >= '{start_date.date()}'
+                ORDER BY date, hour
+            """)
+            
+            logger.info(f"Loading {hours} hours of weather history")
+            df = self.db.read_query(query)
+            
+            if not df.empty:
+                # Create datetime column
+                df['datetime'] = pd.to_datetime(df['date'].astype(str) + ' ' + 
+                                               df['hour'].astype(str) + ':00:00')
+                logger.info(f"Loaded {len(df)} weather records")
+            else:
+                logger.warning("No weather history found")
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error loading weather history: {e}")
+            return pd.DataFrame()
+    
+    def load_combined_history(self,
+                            station_ids: Optional[List[str]] = None,
+                            hours: int = None) -> pd.DataFrame:
+        """Load all historical data combined"""
+        if hours is None:
+            hours = self.window_hours
+        
+        # Load individual datasets
+        availability_df = self.load_availability_history(station_ids, hours)
+        netflow_df = self.load_netflow_history(station_ids, hours)
+        weather_df = self.load_weather_history(hours)
+        
+        if availability_df.empty:
+            logger.warning("No historical data available")
+            return pd.DataFrame()
+        
+        # Start with availability as base
+        combined_df = availability_df.copy()
+        
+        # Merge netflow data if available
+        if not netflow_df.empty:
+            netflow_cols = ['station_id', 'datetime', 'bikes_departed', 'bikes_arrived', 
+                          'net_flow', 'total_activity', 'avg_trip_duration_min', 'avg_trip_distance_m']
+            combined_df = pd.merge(
+                combined_df,
+                netflow_df[netflow_cols],
+                on=['station_id', 'datetime'],
+                how='left'
+            )
+            
+            # Fill missing netflow values
+            combined_df['bikes_departed'] = combined_df['bikes_departed'].fillna(0)
+            combined_df['bikes_arrived'] = combined_df['bikes_arrived'].fillna(0)
+            combined_df['net_flow'] = combined_df['net_flow'].fillna(0)
+            combined_df['total_activity'] = combined_df['total_activity'].fillna(0)
+        else:
+            # Create empty netflow columns
+            combined_df['bikes_departed'] = 0
+            combined_df['bikes_arrived'] = 0
+            combined_df['net_flow'] = 0
+            combined_df['total_activity'] = 0
+        
+        # Merge weather data if available
+        if not weather_df.empty:
+            weather_cols = ['datetime', 'temperature', 'humidity', 'precipitation', 
+                          'wind_speed', 'feels_like', 'is_raining', 'is_snowing', 'weather_severity']
+            combined_df = pd.merge(
+                combined_df,
+                weather_df[weather_cols],
+                on='datetime',
+                how='left'
+            )
+            
+            # Fill missing weather values with interpolation or defaults
+            combined_df['temperature'] = combined_df['temperature'].interpolate().fillna(15)
+            combined_df['humidity'] = combined_df['humidity'].interpolate().fillna(60)
+            combined_df['precipitation'] = combined_df['precipitation'].fillna(0)
+            combined_df['wind_speed'] = combined_df['wind_speed'].interpolate().fillna(2)
+            combined_df['feels_like'] = combined_df['feels_like'].interpolate().fillna(15)
+            combined_df['is_raining'] = combined_df['is_raining'].fillna(0)
+            combined_df['is_snowing'] = combined_df['is_snowing'].fillna(0)
+            combined_df['weather_severity'] = combined_df['weather_severity'].fillna(0)
+        
+        # Sort by station and time
+        combined_df = combined_df.sort_values(['station_id', 'datetime'])
+        
+        logger.info(f"Combined history: {len(combined_df)} records, {combined_df['station_id'].nunique()} stations")
+        
+        return combined_df
+    
+    def get_station_history(self, station_id: str, hours: int = None) -> pd.DataFrame:
+        """Get history for a specific station"""
+        return self.load_combined_history([station_id], hours)
+    
+    def calculate_lag_features(self, 
+                              current_data: pd.DataFrame,
+                              lag_hours: List[int] = None) -> pd.DataFrame:
+        """Calculate lag features for current data using historical data"""
+        if lag_hours is None:
+            lag_hours = Config.LAG_HOURS
+        
+        # Load historical data
+        station_ids = current_data['station_id'].unique().tolist()
+        history_df = self.load_combined_history(station_ids, max(lag_hours) + 1)
+        
+        if history_df.empty:
+            logger.warning("No historical data for lag features")
+            # Return current data with null lag features
+            for lag in lag_hours:
+                for col in ['available_bikes', 'net_flow', 'total_activity', 
+                          'is_stockout', 'utilization_rate']:
+                    current_data[f'{col}_lag_{lag}h'] = np.nan
+            return current_data
+        
+        # For each station in current data, calculate lag features
+        result_dfs = []
+        
+        for _, row in current_data.iterrows():
+            station_id = row['station_id']
+            current_time = pd.Timestamp.now()
+            
+            # Get station history
+            station_history = history_df[history_df['station_id'] == station_id].copy()
+            
+            if station_history.empty:
+                result_dfs.append(row.to_frame().T)
+                continue
+            
+            # Calculate lag features
+            lag_features = {}
+            for lag in lag_hours:
+                lag_time = current_time - timedelta(hours=lag)
+                
+                # Find closest historical record
+                time_diff = abs(station_history['datetime'] - lag_time)
+                if len(time_diff) > 0:
+                    closest_idx = time_diff.idxmin()
+                    
+                    # Only use if within 1 hour of target time
+                    if time_diff.loc[closest_idx] <= timedelta(hours=1):
+                        lag_record = station_history.loc[closest_idx]
+                        
+                        lag_features[f'available_bikes_lag_{lag}h'] = lag_record['available_bikes']
+                        lag_features[f'net_flow_lag_{lag}h'] = lag_record['net_flow']
+                        lag_features[f'total_activity_lag_{lag}h'] = lag_record['total_activity']
+                        lag_features[f'is_stockout_lag_{lag}h'] = lag_record['is_stockout']
+                        lag_features[f'utilization_rate_lag_{lag}h'] = lag_record['utilization_rate']
+            
+            # Add lag features to current row
+            for key, value in lag_features.items():
+                row[key] = value
+            
+            result_dfs.append(row.to_frame().T)
+        
+        # Combine all rows
+        result_df = pd.concat(result_dfs, ignore_index=True)
+        
+        return result_df
+    
+    def calculate_rolling_features(self,
+                                  current_data: pd.DataFrame,
+                                  rolling_windows: List[int] = None) -> pd.DataFrame:
+        """Calculate rolling statistics features"""
+        if rolling_windows is None:
+            rolling_windows = Config.ROLLING_WINDOWS
+        
+        # Load historical data
+        station_ids = current_data['station_id'].unique().tolist()
+        history_df = self.load_combined_history(station_ids, max(rolling_windows))
+        
+        if history_df.empty:
+            logger.warning("No historical data for rolling features")
+            # Return current data with null rolling features
+            for window in rolling_windows:
+                for metric in ['available_bikes', 'net_flow', 'total_activity', 
+                             'temperature', 'feels_like']:
+                    current_data[f'{metric}_roll_mean_{window}h'] = np.nan
+                for metric in ['net_flow', 'total_activity']:
+                    current_data[f'{metric}_roll_std_{window}h'] = np.nan
+            return current_data
+        
+        # Calculate rolling features for each station
+        result_dfs = []
+        
+        for _, row in current_data.iterrows():
+            station_id = row['station_id']
+            current_time = pd.Timestamp.now()
+            
+            # Get station history
+            station_history = history_df[history_df['station_id'] == station_id].copy()
+            
+            if station_history.empty:
+                result_dfs.append(row.to_frame().T)
+                continue
+            
+            # Calculate rolling features
+            rolling_features = {}
+            for window in rolling_windows:
+                cutoff_time = current_time - timedelta(hours=window)
+                window_data = station_history[station_history['datetime'] > cutoff_time]
+                
+                if not window_data.empty:
+                    # Mean features
+                    rolling_features[f'available_bikes_roll_mean_{window}h'] = window_data['available_bikes'].mean()
+                    rolling_features[f'net_flow_roll_mean_{window}h'] = window_data['net_flow'].mean()
+                    rolling_features[f'total_activity_roll_mean_{window}h'] = window_data['total_activity'].mean()
+                    rolling_features[f'temperature_roll_mean_{window}h'] = window_data['temperature'].mean()
+                    rolling_features[f'feels_like_roll_mean_{window}h'] = window_data['feels_like'].mean()
+                    
+                    # Std features
+                    rolling_features[f'net_flow_roll_std_{window}h'] = window_data['net_flow'].std()
+                    rolling_features[f'total_activity_roll_std_{window}h'] = window_data['total_activity'].std()
+            
+            # Add rolling features to current row
+            for key, value in rolling_features.items():
+                row[key] = value
+            
+            result_dfs.append(row.to_frame().T)
+        
+        # Combine all rows
+        result_df = pd.concat(result_dfs, ignore_index=True)
+        
+        return result_df
+
+
+if __name__ == "__main__":
+    # Test the historical data loader
+    logging.basicConfig(level=logging.INFO)
+    
+    loader = HistoricalDataLoader()
+    
+    # Test loading different data types
+    print("Testing availability history...")
+    availability = loader.load_availability_history(hours=24)
+    print(f"Loaded {len(availability)} availability records")
+    
+    print("\nTesting netflow history...")
+    netflow = loader.load_netflow_history(hours=24)
+    print(f"Loaded {len(netflow)} netflow records")
+    
+    print("\nTesting weather history...")
+    weather = loader.load_weather_history(hours=24)
+    print(f"Loaded {len(weather)} weather records")
+    
+    print("\nTesting combined history...")
+    combined = loader.load_combined_history(hours=24)
+    if not combined.empty:
+        print(f"Combined data shape: {combined.shape}")
+        print(f"Columns: {combined.columns.tolist()}")

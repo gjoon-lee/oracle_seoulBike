@@ -4,7 +4,7 @@ Run this to process your June data files
 """
 
 from db_connection import BikeDataDB
-from bike_data_cleaner import BikeDataCleaner
+from data.data_processer.bike_data_cleaner import BikeDataCleaner
 import os
 
 def test_single_file():
