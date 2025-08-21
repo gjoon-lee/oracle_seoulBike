@@ -4,34 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Seoul Bike Share System (따릉이) ML pipeline with dual model approach: XGBoost for net flow regression and LightGBM for stockout classification. Processes historical trip records, availability data, and weather conditions to predict station status 2 hours ahead. The system handles Korean CSV files with CP949 encoding and manages PostgreSQL database integration.
-
-## Project Status (Updated: 2025-01-14)
-
-### ✅ Completed Tasks
-1. **Station Mapping System (99.96% success)**
-   - Multi-strategy matching: Address-based + Coordinate-based
-   - 2,779 out of 2,780 stations mapped from station_info.xlsx
-   - Cached in `rental_station_mapping` table for instant lookups
-   - Only 1 unmapped station: 00959 (대학로10번길 광장)
-
-2. **Data Processing Pipelines**
-   - Weather data: Complete with station ID/name columns dropped
-   - Historical trips: Processed to `station_hourly_flow` table
-   - Availability data: Processing 12 months (Jan-Dec 2024) overnight
-
-3. **Critical Data Issues Resolved**
-   - Identified 386 extra stations in availability data not in station_info.xlsx
-   - Achieved 87.4% data coverage (1.66M out of 1.9M records per month)
-   - Unmapped data saved separately for reference
-
-### 🔄 In Progress
-- 12-month availability data processing (expected completion: overnight)
-
-### 📋 Next Steps
-1. Combine availability + netflow + weather data into unified feature table
-2. Feature engineering with lag features and rolling statistics
-3. Train XGBoost model with 2-hour prediction target
+Seoul Bike Share System (따릉이) ML pipeline with dual model approach: LightGBM for stockout classification (primary) and XGBoost for net flow regression. Includes real-time prediction API using FastAPI. Processes Korean CSV files (CP949 encoding) and serves predictions via REST endpoints.
 
 ## Essential Commands
 
@@ -66,11 +39,10 @@ python prepare_lightgbm_data.py    # Prepare combined dataset (full year)
 python lightgbm_train_classifier.py # Train LightGBM classifier
 python prepare_lightgbm_data_test.py # Quick test with January sample
 
-# Real-time Prediction API (NEW)
+# Real-time Prediction API
 cd realtime_prediction
-pip install -r requirements.txt    # Install API dependencies
-python main.py                     # Start FastAPI server (http://localhost:8000)
-# Access API docs at http://localhost:8000/docs
+..\\.venv\\Scripts\\python.exe main.py  # Start FastAPI server
+# Access at http://localhost:8000/docs (NOT http://0.0.0.0:8000)
 
 # Database operations
 python db_connection.py            # Test PostgreSQL connection
