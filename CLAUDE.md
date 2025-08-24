@@ -39,10 +39,19 @@ python prepare_lightgbm_data.py    # Prepare combined dataset (full year)
 python lightgbm_train_classifier.py # Train LightGBM classifier
 python prepare_lightgbm_data_test.py # Quick test with January sample
 
-# Real-time Prediction API
+# Real-time Prediction API and Dashboard (Windows)
+# Terminal 1: Start API
 cd realtime_prediction
-..\\.venv\\Scripts\\python.exe main.py  # Start FastAPI server
-# Access at http://localhost:8000/docs (NOT http://0.0.0.0:8000)
+python main.py  # Or: ..\\.venv\\Scripts\\python.exe main.py
+# Access at http://localhost:8002/docs (port changed from 8001 to avoid conflicts)
+
+# Terminal 2: Start Dashboard  
+cd streamlit_app
+streamlit run dashboard_v2.py  # Or: ..\\.venv\\Scripts\\streamlit.exe run dashboard_v2.py
+# Access at http://localhost:8501
+
+# Alternative: Use batch file to run both
+run_dashboard.bat  # Starts both API and dashboard
 
 # Database operations
 python db_connection.py            # Test PostgreSQL connection
@@ -188,6 +197,15 @@ station_master (
 
 ## Critical Implementation Details
 
+### Model Compatibility Fix
+LightGBM models saved as Booster objects don't have `predict_proba`. Use:
+```python
+if hasattr(model, 'predict_proba'):
+    probabilities = model.predict_proba(X)[:, 1]
+else:
+    probabilities = model.predict(X, num_iteration=model.best_iteration)
+```
+
 ### Korean Data Handling
 ALWAYS use `encoding='cp949'` for historical CSV files. The `column_mapping` dictionary in `BikeDataCleaner`:
 ```python
@@ -230,6 +248,12 @@ db.execute(text("SELECT * FROM table"))
 text("WHERE id = :id"), {"id": value}
 
 # Never use %s placeholders
+```
+
+### Pydantic Installation for Python 3.13
+Use pre-built wheels to avoid Rust compilation:
+```bash
+.venv\\Scripts\\python.exe -m pip install "pydantic==2.10.4" "pydantic-core==2.27.2" --only-binary :all:
 ```
 
 ### Performance Benchmarks
@@ -288,20 +312,23 @@ WHERE a.date BETWEEN '2024-01-01' AND '2024-12-31'
 
 ## Known Issues & Solutions
 
-### Issue 1: Station Data Mismatch
+### Issue 1: API Port Conflicts
+- **Problem**: Port 8000/8001 already in use error when starting API
+- **Solution**: Port changed to 8002 in `realtime_prediction/config/config.py`. Use `http://localhost:8002`
+
+### Issue 2: Model Prediction Error
+- **Problem**: `'Booster' object has no attribute 'predict_proba'`
+- **Solution**: Check model type and use appropriate predict method (see Model Compatibility Fix)
+
+### Issue 3: Station Data Mismatch
 - **Problem**: 386 stations in availability data not in station_info.xlsx
 - **Impact**: 12.6% data loss (238,548 records)
-- **Solution**: Accept 87.4% coverage, document for stakeholders
-- **Long-term**: Request updated station_info.xlsx from Seoul City
+- **Solution**: Accept 87.4% coverage, save unmapped data separately
 
-### Issue 2: Processing Speed
-- **Problem**: Full year processing takes 10-20 hours
-- **Solution**: Run overnight, use batch inserts
-- **Alternative**: Consider CSV export → bulk PostgreSQL import
-
-### Issue 3: Missing Files
-- **`bikeList_load.py`**: Referenced but doesn't exist - real-time functionality missing
-- **Solution**: Real-time collection needs implementation if required
+### Issue 4: No Historical Data Warning
+- **Problem**: API shows "No availability/netflow history found"
+- **Cause**: API looks for data from current date (2025) but database has 2024 data
+- **Solution**: This is expected for historical demo data. API works without lag features
 
 ## Pending Features (from ToDo.md)
 
@@ -316,23 +343,23 @@ WHERE a.date BETWEEN '2024-01-01' AND '2024-12-31'
 ```bash
 cd realtime_prediction
 python main.py
-# API runs at http://localhost:8000
-# Swagger docs at http://localhost:8000/docs
+# API runs at http://localhost:8002
+# Swagger docs at http://localhost:8002/docs
 ```
 
 ### Example API Calls
 ```bash
 # Get all predictions
-curl http://localhost:8000/predict/all?mode=balanced
+curl http://localhost:8002/predict/all?mode=balanced
 
 # Single station prediction
-curl http://localhost:8000/predict/ST-101
+curl http://localhost:8002/predict/ST-101
 
 # High risk stations
-curl http://localhost:8000/high-risk?threshold=0.7
+curl http://localhost:8002/high-risk?threshold=0.7
 
 # Current station status
-curl http://localhost:8000/stations/status
+curl http://localhost:8002/stations/status
 ```
 
 ### API Features
@@ -353,6 +380,31 @@ curl http://localhost:8000/stations/status
 7. **Add monitoring**: Prometheus metrics and Grafana dashboard
 8. **Implement scheduler**: Automated background tasks for data refresh
 
+## Model Performance Summary
+
+### LightGBM Stockout Classifier (Primary Model)
+- **Model File**: `models/lightgbm_stockout_model_20250819_072922.pkl`
+- **ROC-AUC**: 0.8955
+- **F1-Score**: 0.6177  
+- **Accuracy**: 85.53%
+- **Features**: 110 engineered features
+- **Target**: Binary classification (stockout in 2 hours)
+
+### XGBoost Net Flow Regressor
+- **Target**: Net flow prediction (bikes arrived - departed)
+- **MAE**: ~3.4 bikes
+- **R²**: ~0.61
+- **Features**: 53+ time series features
+
+## Dashboard Versions
+
+Three dashboard versions exist in `streamlit_app/`:
+- **dashboard.py**: Original version (564 lines)
+- **dashboard_clean.py**: Refactored version (392 lines)  
+- **dashboard_v2.py**: Latest version with enhanced features (597 lines, last modified Aug 21 23:52)
+
+Use `dashboard_v2.py` for the most complete experience.
+
 ---
-Last Updated: 2025-01-19
-Status: Real-time prediction API operational with LightGBM model 20250819_072922
+Last Updated: 2025-08-24
+Status: Real-time prediction API operational with LightGBM model on port 8002

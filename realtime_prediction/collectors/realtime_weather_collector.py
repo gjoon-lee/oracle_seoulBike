@@ -242,11 +242,11 @@ class RealtimeWeatherCollector:
         
         logger.warning("Using default weather values")
         return {
-            "temperature": 15.0,  # Seoul average
-            "humidity": 60.0,
+            "temperature": 28.0,  # Seoul summer (August) average
+            "humidity": 65.0,     # Higher humidity in summer
             "precipitation": 0.0,
-            "wind_speed": 2.0,
-            "feels_like": 15.0,
+            "wind_speed": 2.5,
+            "feels_like": 31.0,   # Feels hotter due to humidity
             "is_raining": 0,
             "is_snowing": 0,
             "weather_severity": 0,

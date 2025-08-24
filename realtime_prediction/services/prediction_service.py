@@ -55,8 +55,12 @@ class PredictionService:
             logger.error("No features generated")
             return pd.DataFrame()
         
-        # Store station IDs (not used in prediction)
-        station_ids = features_df.index if 'station_id' not in features_df.columns else features_df['station_id']
+        # Store station IDs (not used in prediction but needed for results)
+        if 'station_id' not in features_df.columns:
+            logger.error("station_id column missing from features DataFrame")
+            return pd.DataFrame()
+        
+        station_ids = features_df['station_id']
         
         # Get feature columns for prediction
         feature_cols = self.thresholds['model_info']['features']

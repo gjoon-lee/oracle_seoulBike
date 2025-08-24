@@ -81,7 +81,7 @@ class Config:
     
     # API Configuration
     API_HOST = "0.0.0.0"
-    API_PORT = 8000
+    API_PORT = 8002  # Changed from 8001 to avoid port conflict
     API_TITLE = "Seoul Bike Stockout Prediction API"
     API_VERSION = "1.0.0"
     API_DESCRIPTION = "Real-time stockout predictions for Seoul bike sharing system"

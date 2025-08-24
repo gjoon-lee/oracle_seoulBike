@@ -80,10 +80,10 @@ class RealtimeBikeCollector:
         """Fetch data for all stations with pagination"""
         all_stations = []
         start_idx = 1
-        total_count = None
+        max_batches = 5  # Try up to 5000 stations
         
-        while True:
-            end_idx = min(start_idx + self.max_records - 1, total_count or float('inf'))
+        for batch in range(max_batches):
+            end_idx = start_idx + self.max_records - 1
             
             try:
                 url = self._build_url(start_idx, int(end_idx))
@@ -91,6 +91,7 @@ class RealtimeBikeCollector:
                 
                 response = requests.get(url, timeout=Config.REQUEST_TIMEOUT)
                 response.raise_for_status()
+                response.encoding = 'utf-8'  # Force UTF-8 encoding for Korean text
                 
                 data = response.json()
                 
@@ -101,26 +102,33 @@ class RealtimeBikeCollector:
                 
                 bike_data = data['rentBikeStatus']
                 
-                # Get total count on first request
-                if total_count is None:
-                    total_count = int(bike_data.get('list_total_count', 0))
-                    logger.info(f"Total stations to fetch: {total_count}")
+                # Get current batch count
+                current_count = int(bike_data.get('list_total_count', 0))
+                logger.info(f"Current batch has {current_count} stations")
                 
                 # Check for API-level errors
                 result_code = bike_data.get('RESULT', {}).get('CODE', '')
-                if result_code != 'INFO-000':
+                if result_code not in ['INFO-000', 'INFO-200']:  # INFO-200 = no data
+                    if result_code == 'INFO-200':
+                        logger.info("No more stations available")
+                        break
                     logger.error(f"API error: {bike_data.get('RESULT', {})}")
                     break
                 
                 # Parse station data
                 stations = bike_data.get('row', [])
+                if not stations:
+                    logger.info("No more stations in response")
+                    break
+                    
                 for station in stations:
                     parsed = self._parse_station_data(station)
                     if parsed:
                         all_stations.append(parsed)
                 
-                # Check if we've fetched all stations
-                if end_idx >= total_count:
+                # If we got less than max_records, we've reached the end
+                if len(stations) < self.max_records:
+                    logger.info(f"Got {len(stations)} stations, less than {self.max_records}, assuming end of data")
                     break
                 
                 start_idx = end_idx + 1

@@ -1,7 +1,11 @@
 {
   "permissions": {
     "allow": [
-      "Bash(.venv/Scripts/python.exe:*)"
+      "Bash(.venv/Scripts/python.exe:*)",
+      "Bash(mkdir:*)",
+      "Bash(../.venv/Scripts/python.exe -m streamlit run:*)",
+      "Bash(../.venv/Scripts/python.exe:*)",
+      "Bash(.venv/Scripts/pip.exe install:*)"
     ],
     "deny": [],
     "ask": []

@@ -220,28 +220,33 @@ async def get_high_risk_stations(
 
 @app.get("/stations/status", tags=["stations"])
 async def get_stations_status(
-    limit: int = Query(100, ge=1, le=1000, description="Maximum number of stations")
+    limit: int = Query(100, ge=1, le=5000, description="Maximum number of stations"),
+    offset: int = Query(0, ge=0, description="Offset for pagination")
 ):
     """Get current availability status for all stations"""
     try:
-        logger.info("Fetching current station status")
+        logger.info(f"Fetching station status (limit={limit}, offset={offset})")
         stations_df = bike_collector.fetch_all_stations()
         
         if stations_df.empty:
             raise HTTPException(status_code=500, detail="Failed to fetch station data")
         
-        # Limit results
-        stations_df = stations_df.head(limit)
+        # Apply pagination
+        total_count = len(stations_df)
+        stations_df = stations_df.iloc[offset:offset+limit]
         
-        # Select relevant columns
+        # Select relevant columns including coordinates
         status_df = stations_df[[
             'station_id', 'station_name', 'available_bikes',
-            'station_capacity', 'utilization_rate', 'is_stockout'
+            'station_capacity', 'utilization_rate', 'is_stockout',
+            'latitude', 'longitude'
         ]]
         
         return {
             "stations": status_df.to_dict(orient="records"),
             "count": len(status_df),
+            "total_count": total_count,
+            "offset": offset,
             "timestamp": datetime.now().isoformat()
         }
         

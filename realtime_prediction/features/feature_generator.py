@@ -187,20 +187,25 @@ class FeatureGenerator:
                         df.at[idx, feature] = profile[feature]
         
         # Fill missing with global averages
-        df['station_available_bikes_mean'].fillna(10.0, inplace=True)
-        df['station_available_bikes_std'].fillna(5.0, inplace=True)
-        df['station_net_flow_mean'].fillna(0.0, inplace=True)
-        df['station_net_flow_std'].fillna(2.0, inplace=True)
-        df['station_total_activity_mean'].fillna(20.0, inplace=True)
-        df['station_total_activity_std'].fillna(10.0, inplace=True)
-        df['station_station_capacity_mean'].fillna(df['station_capacity'].mean(), inplace=True)
-        df['station_is_stockout_mean'].fillna(0.1, inplace=True)
-        df['station_is_nearly_empty_mean'].fillna(0.2, inplace=True)
+        df['station_available_bikes_mean'] = df['station_available_bikes_mean'].fillna(10.0)
+        df['station_available_bikes_std'] = df['station_available_bikes_std'].fillna(5.0)
+        df['station_net_flow_mean'] = df['station_net_flow_mean'].fillna(0.0)
+        df['station_net_flow_std'] = df['station_net_flow_std'].fillna(2.0)
+        df['station_total_activity_mean'] = df['station_total_activity_mean'].fillna(20.0)
+        df['station_total_activity_std'] = df['station_total_activity_std'].fillna(10.0)
+        df['station_station_capacity_mean'] = df['station_station_capacity_mean'].fillna(df['station_capacity'].mean())
+        df['station_is_stockout_mean'] = df['station_is_stockout_mean'].fillna(0.1)
+        df['station_is_nearly_empty_mean'] = df['station_is_nearly_empty_mean'].fillna(0.2)
         
         return df
     
     def ensure_all_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Ensure all required features are present"""
+        
+        # Preserve station_id column if it exists (not a model feature but needed for tracking)
+        station_ids = None
+        if 'station_id' in df.columns:
+            station_ids = df['station_id'].copy()
         
         # Check for missing features
         missing_features = []
@@ -219,6 +224,10 @@ class FeatureGenerator:
         # Select only required features in correct order
         df = df[self.required_features]
         
+        # Re-add station_id column if it was present
+        if station_ids is not None:
+            df['station_id'] = station_ids
+        
         return df
     
     def fill_missing_values(self, df: pd.DataFrame) -> pd.DataFrame:
@@ -229,9 +238,9 @@ class FeatureGenerator:
         for col in lag_cols:
             base_col = col.split('_lag_')[0]
             if base_col in df.columns:
-                df[col].fillna(df[base_col], inplace=True)
+                df[col] = df[col].fillna(df[base_col])
             else:
-                df[col].fillna(0, inplace=True)
+                df[col] = df[col].fillna(0)
         
         # Rolling features - use current value
         roll_cols = [col for col in df.columns if '_roll_' in col]
@@ -239,31 +248,31 @@ class FeatureGenerator:
             if 'mean' in col:
                 base_col = col.split('_roll_')[0]
                 if base_col in df.columns:
-                    df[col].fillna(df[base_col], inplace=True)
+                    df[col] = df[col].fillna(df[base_col])
                 else:
-                    df[col].fillna(0, inplace=True)
+                    df[col] = df[col].fillna(0)
             elif 'std' in col:
-                df[col].fillna(0, inplace=True)
+                df[col] = df[col].fillna(0)
         
-        # Weather features
-        df['temperature'].fillna(15.0, inplace=True)
-        df['humidity'].fillna(60.0, inplace=True)
-        df['precipitation'].fillna(0.0, inplace=True)
-        df['wind_speed'].fillna(2.0, inplace=True)
-        df['feels_like'].fillna(15.0, inplace=True)
+        # Weather features (Seoul summer defaults)
+        df['temperature'] = df['temperature'].fillna(28.0)
+        df['humidity'] = df['humidity'].fillna(65.0)
+        df['precipitation'] = df['precipitation'].fillna(0.0)
+        df['wind_speed'] = df['wind_speed'].fillna(2.5)
+        df['feels_like'] = df['feels_like'].fillna(31.0)
         
         # Binary features
         binary_cols = [col for col in df.columns if col.startswith('is_')]
         for col in binary_cols:
-            df[col].fillna(0, inplace=True)
+            df[col] = df[col].fillna(0)
         
         # Other features
-        df['net_flow'].fillna(0, inplace=True)
-        df['bikes_arrived'].fillna(0, inplace=True)
-        df['bikes_departed'].fillna(0, inplace=True)
-        df['total_activity'].fillna(0, inplace=True)
-        df['avg_trip_duration_min'].fillna(15.0, inplace=True)
-        df['avg_trip_distance_m'].fillna(2000.0, inplace=True)
+        df['net_flow'] = df['net_flow'].fillna(0)
+        df['bikes_arrived'] = df['bikes_arrived'].fillna(0)
+        df['bikes_departed'] = df['bikes_departed'].fillna(0)
+        df['total_activity'] = df['total_activity'].fillna(0)
+        df['avg_trip_duration_min'] = df['avg_trip_duration_min'].fillna(15.0)
+        df['avg_trip_distance_m'] = df['avg_trip_distance_m'].fillna(2000.0)
         
         return df
     
