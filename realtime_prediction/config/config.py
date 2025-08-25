@@ -50,6 +50,10 @@ class Config:
     MODEL_PATH = MODELS_DIR / "lightgbm_stockout_model_20250819_072922.pkl"
     MODEL_THRESHOLDS_PATH = MODELS_DIR / "model_thresholds_20250819_072922.json"
     
+    # XGBoost Model Configuration
+    XGB_MODEL_PATH = PROJECT_ROOT.parent / "models" / "xgb_target_net_flow_2h_20250824_095448.pkl"
+    XGB_CONFIG_PATH = PROJECT_ROOT.parent / "models" / "xgb_target_net_flow_2h_config_20250824_095448.json"
+    
     # Load model thresholds
     @classmethod
     def load_model_thresholds(cls) -> Dict[str, Any]:
@@ -81,7 +85,7 @@ class Config:
     
     # API Configuration
     API_HOST = "0.0.0.0"
-    API_PORT = 8002  # Changed from 8001 to avoid port conflict
+    API_PORT = 8003  # Changed from 8002 to avoid port conflict
     API_TITLE = "Seoul Bike Stockout Prediction API"
     API_VERSION = "1.0.0"
     API_DESCRIPTION = "Real-time stockout predictions for Seoul bike sharing system"
@@ -127,6 +131,12 @@ class Config:
         
         if not cls.MODEL_THRESHOLDS_PATH.exists():
             errors.append(f"Thresholds file not found: {cls.MODEL_THRESHOLDS_PATH}")
+        
+        if not cls.XGB_MODEL_PATH.exists():
+            errors.append(f"XGBoost model file not found: {cls.XGB_MODEL_PATH}")
+        
+        if not cls.XGB_CONFIG_PATH.exists():
+            errors.append(f"XGBoost config file not found: {cls.XGB_CONFIG_PATH}")
         
         if errors:
             for error in errors:

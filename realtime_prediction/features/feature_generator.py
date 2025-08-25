@@ -106,6 +106,16 @@ class FeatureGenerator:
         
         return bike_df
     
+    def generate_xgboost_features(self) -> pd.DataFrame:
+        """Generate features for XGBoost model (same as LightGBM features)"""
+        # XGBoost uses the same 110 features as LightGBM
+        return self.generate_features()
+    
+    def generate_features_for_xgboost_station(self, station_id: str) -> pd.Series:
+        """Generate XGBoost features for a specific station"""
+        # XGBoost uses the same features as LightGBM
+        return self.generate_features_for_station(station_id)
+    
     def add_temporal_features(self, df: pd.DataFrame) -> pd.DataFrame:
         """Add temporal encoding features"""
         now = datetime.now()
@@ -289,8 +299,29 @@ class FeatureGenerator:
         # Convert to DataFrame for processing
         df = pd.DataFrame([station_data])
         
-        # Generate all features
-        df = self.generate_features()
+        # Get current weather (same for all stations)
+        weather_data = self.weather_collector.fetch_current_weather()
+        for key, value in weather_data.items():
+            if key != 'timestamp' and key != 'source':
+                df[key] = value
+        
+        # Add temporal features
+        df = self.add_temporal_features(df)
+        
+        # Add derived features
+        df = self.add_derived_features(df)
+        
+        # Add lag features from historical data
+        df = self.history_loader.calculate_lag_features(df, Config.LAG_HOURS)
+        
+        # Add rolling features
+        df = self.history_loader.calculate_rolling_features(df, Config.ROLLING_WINDOWS)
+        
+        # Add station profile features
+        df = self.add_station_profile_features(df)
+        
+        # Ensure all required features are present
+        df = self.ensure_all_features(df)
         
         if not df.empty:
             return df.iloc[0]

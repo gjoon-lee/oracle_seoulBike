@@ -5,7 +5,10 @@
       "Bash(mkdir:*)",
       "Bash(../.venv/Scripts/python.exe -m streamlit run:*)",
       "Bash(../.venv/Scripts/python.exe:*)",
-      "Bash(.venv/Scripts/pip.exe install:*)"
+      "Bash(.venv/Scripts/pip.exe install:*)",
+      "Bash(lsof:*)",
+      "Bash(pkill:*)",
+      "Bash(curl:*)"
     ],
     "deny": [],
     "ask": []

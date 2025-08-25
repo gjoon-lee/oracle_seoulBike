@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class BikeAPIClient:
     """Client for interacting with the bike prediction API"""
     
-    def __init__(self, base_url: str = "http://localhost:8002"):
+    def __init__(self, base_url: str = "http://localhost:8003"):
         self.base_url = base_url
         self.session = requests.Session()
         self.session.headers.update({
@@ -81,6 +81,29 @@ class BikeAPIClient:
         """Get stockout predictions for stations"""
         # Use /predict/all endpoint for predictions
         return self._make_request('GET', '/predict/all')
+    
+    def get_xgboost_predictions(self) -> Optional[Dict]:
+        """Get XGBoost net flow predictions for all stations"""
+        return self._make_request('GET', '/predict/xgboost/all')
+    
+    def get_xgboost_station(self, station_id: str) -> Optional[Dict]:
+        """Get XGBoost prediction for a specific station"""
+        return self._make_request('GET', f'/predict/xgboost/{station_id}')
+    
+    def get_xgboost_batch(self, station_ids: List[str]) -> Optional[Dict]:
+        """Get XGBoost predictions for specific stations (batch)"""
+        if not station_ids:
+            return None
+        data = {'station_ids': station_ids[:100]}  # Limit to 100 stations
+        return self._make_request('POST', '/predict/xgboost/batch', json=data)
+    
+    def get_combined_predictions(self) -> Optional[Dict]:
+        """Get combined predictions from both LightGBM and XGBoost"""
+        return self._make_request('GET', '/predict/combined')
+    
+    def get_xgboost_model_info(self) -> Optional[Dict]:
+        """Get XGBoost model information and metrics"""
+        return self._make_request('GET', '/model/xgboost/info')
     
     def get_high_risk_stations(self, threshold: float = 0.5) -> Optional[Dict]:
         """Get stations with high stockout risk"""

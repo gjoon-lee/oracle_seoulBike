@@ -293,7 +293,7 @@ if 'auto_refresh' not in st.session_state:
 # Initialize API client
 @st.cache_resource
 def get_api_client():
-    return BikeAPIClient(base_url="http://localhost:8002")
+    return BikeAPIClient(base_url="http://localhost:8003")
 
 api_client = get_api_client()
 
@@ -358,6 +358,8 @@ def main():
     with st.spinner("데이터를 불러오는 중..."):
         current_status = api_client.get_stations_status()
         predictions = api_client.get_predictions()
+        # XGBoost predictions will be loaded on-demand
+        xgboost_predictions = None
     
     if current_status is not None and predictions is not None:
         # Extract dataframes from API responses
@@ -371,6 +373,15 @@ def main():
         else:
             pred_df = pd.DataFrame()
         
+        # Process XGBoost predictions
+        xgb_df = pd.DataFrame()
+        if xgboost_predictions and 'predictions' in xgboost_predictions:
+            xgb_df = pd.DataFrame(xgboost_predictions['predictions'])
+            # Select only needed columns
+            xgb_df = xgb_df[['station_id', 'predicted_net_flow_2h', 'predicted_bikes_2h', 'confidence_level']]
+            # Rename to avoid conflicts
+            xgb_df.columns = ['station_id', 'xgb_net_flow_2h', 'xgb_predicted_bikes_2h', 'xgb_confidence']
+        
         # Merge data if both dataframes have data
         if not current_df.empty and not pred_df.empty:
             df = pd.merge(
@@ -379,9 +390,17 @@ def main():
                 on='station_id',
                 how='left'
             )
+            
+            # Merge XGBoost predictions if available
+            if not xgb_df.empty:
+                df = pd.merge(df, xgb_df, on='station_id', how='left')
         elif not current_df.empty:
             # Use current status only if predictions not available
             df = current_df
+            
+            # Try to merge XGBoost even without LightGBM predictions
+            if not xgb_df.empty:
+                df = pd.merge(df, xgb_df, on='station_id', how='left')
             # Generate more realistic test probabilities based on available bikes
             np.random.seed(42)  # For consistent results
             # Lower available bikes = higher stockout probability
@@ -447,7 +466,7 @@ def main():
         
         
         # Main Tabs
-        tab1, tab2 = st.tabs(["📍 실시간 대여소 현황", "🤖 예측 인사이트"])
+        tab1, tab2, tab3 = st.tabs(["📍 실시간 대여소 현황", "🤖 예측 인사이트", "📊 XGBoost 예측"])
         
         with tab1:
             # Real-time Station Status with Map
@@ -737,28 +756,112 @@ def main():
             if st.session_state.get('show_safe_detail', False):
                 with st.expander("🟢 양호 대여소 목록", expanded=True):
                     if not safe_stations.empty:
-                        display_safe = safe_stations[['station_name', 'station_id', 'available_bikes', 'station_capacity', 'stockout_probability']].copy()
+                        # Add button to load XGBoost predictions
+                        col1, col2 = st.columns([3, 1])
+                        with col2:
+                            if st.button("XGBoost 예측 보기", key="safe_xgb"):
+                                with st.spinner("XGBoost 예측 로딩 중..."):
+                                    station_ids = safe_stations['station_id'].tolist()
+                                    xgb_batch = api_client.get_xgboost_batch(station_ids)
+                                    if xgb_batch and 'predictions' in xgb_batch:
+                                        xgb_batch_df = pd.DataFrame(xgb_batch['predictions'])
+                                        xgb_batch_df = xgb_batch_df[['station_id', 'predicted_net_flow_2h', 'predicted_bikes_2h', 'confidence_level']]
+                                        xgb_batch_df.columns = ['station_id', 'xgb_net_flow_2h', 'xgb_predicted_bikes_2h', 'xgb_confidence']
+                                        safe_stations = pd.merge(safe_stations, xgb_batch_df, on='station_id', how='left')
+                                        st.session_state['safe_xgb_data'] = xgb_batch_df
+                        
+                        # Check if we have cached XGBoost data
+                        if 'safe_xgb_data' in st.session_state:
+                            xgb_data = st.session_state['safe_xgb_data']
+                            safe_stations = pd.merge(safe_stations.drop(columns=['xgb_net_flow_2h', 'xgb_predicted_bikes_2h', 'xgb_confidence'], errors='ignore'),
+                                                    xgb_data, on='station_id', how='left')
+                        
+                        # Prepare display columns
+                        cols_to_show = ['station_name', 'station_id', 'available_bikes', 'station_capacity', 'stockout_probability']
+                        col_names = ['대여소명', 'ID', '현재 자전거', '거치대', '재고부족 확률(%)']
+                        
+                        if 'xgb_predicted_bikes_2h' in safe_stations.columns and 'xgb_net_flow_2h' in safe_stations.columns:
+                            cols_to_show.append('xgb_predicted_bikes_2h')
+                            cols_to_show.append('xgb_net_flow_2h')
+                            col_names.append('예상 자전거(2h)')
+                            col_names.append('순 변화량')
+                        
+                        display_safe = safe_stations[cols_to_show].copy()
                         display_safe['stockout_probability'] = (display_safe['stockout_probability'] * 100).round(1)
-                        display_safe.columns = ['대여소명', 'ID', '현재 자전거', '거치대', '재고부족 확률(%)']
-                        st.dataframe(display_safe, use_container_width=True, hide_index=True, height=400)
+                        
+                        if 'xgb_predicted_bikes_2h' in display_safe.columns:
+                            display_safe['xgb_predicted_bikes_2h'] = display_safe['xgb_predicted_bikes_2h'].round(0).astype(int)
+                            display_safe['xgb_net_flow_2h'] = display_safe['xgb_net_flow_2h'].apply(lambda x: f"{x:+.0f}" if pd.notna(x) else "")
+                        
+                        display_safe.columns = col_names
+                        
+                        # Style the dataframe with light gray background for XGBoost columns
+                        styled_df = display_safe.style
+                        if '예상 자전거(2h)' in display_safe.columns:
+                            styled_df = styled_df.set_properties(**{'background-color': '#f3f4f6'}, 
+                                                                subset=['예상 자전거(2h)', '순 변화량'])
+                        
+                        st.dataframe(styled_df, use_container_width=True, hide_index=True, height=400)
             
             if st.session_state.get('show_warning_detail', False):
                 with st.expander("🟠 경고 대여소 목록", expanded=True):
                     if not warning_stations.empty:
-                        display_warning = warning_stations[['station_name', 'station_id', 'available_bikes', 'station_capacity', 'stockout_probability']].copy()
+                        # Check if XGBoost columns exist
+                        cols_to_show = ['station_name', 'station_id', 'available_bikes', 'station_capacity', 'stockout_probability']
+                        col_names = ['대여소명', 'ID', '현재 자전거', '거치대', '재고부족 확률(%)']
+                        
+                        if 'xgb_predicted_bikes_2h' in warning_stations.columns and 'xgb_net_flow_2h' in warning_stations.columns:
+                            cols_to_show.append('xgb_predicted_bikes_2h')
+                            cols_to_show.append('xgb_net_flow_2h')
+                            col_names.append('예상 자전거(2h)')
+                            col_names.append('순 변화량')
+                        
+                        display_warning = warning_stations[cols_to_show].copy()
                         display_warning['stockout_probability'] = (display_warning['stockout_probability'] * 100).round(1)
-                        display_warning.columns = ['대여소명', 'ID', '현재 자전거', '거치대', '재고부족 확률(%)']
-                        st.dataframe(display_warning.sort_values('재고부족 확률(%)', ascending=False), 
-                                    use_container_width=True, hide_index=True, height=400)
+                        
+                        if 'xgb_predicted_bikes_2h' in display_warning.columns:
+                            display_warning['xgb_predicted_bikes_2h'] = display_warning['xgb_predicted_bikes_2h'].round(0).astype(int)
+                            display_warning['xgb_net_flow_2h'] = display_warning['xgb_net_flow_2h'].apply(lambda x: f"{x:+.0f}" if pd.notna(x) else "")
+                        
+                        display_warning.columns = col_names
+                        
+                        # Style the dataframe with light gray background for XGBoost columns
+                        styled_df = display_warning.sort_values(col_names[4], ascending=False).style
+                        if '예상 자전거(2h)' in display_warning.columns:
+                            styled_df = styled_df.set_properties(**{'background-color': '#f3f4f6'}, 
+                                                                subset=['예상 자전거(2h)', '순 변화량'])
+                        
+                        st.dataframe(styled_df, use_container_width=True, hide_index=True, height=400)
             
             if st.session_state.get('show_danger_detail', False):
                 with st.expander("🔴 위험 대여소 목록", expanded=True):
                     if not danger_stations.empty:
-                        display_danger = danger_stations[['station_name', 'station_id', 'available_bikes', 'station_capacity', 'stockout_probability']].copy()
+                        # Check if XGBoost columns exist
+                        cols_to_show = ['station_name', 'station_id', 'available_bikes', 'station_capacity', 'stockout_probability']
+                        col_names = ['대여소명', 'ID', '현재 자전거', '거치대', '재고부족 확률(%)']
+                        
+                        if 'xgb_predicted_bikes_2h' in danger_stations.columns and 'xgb_net_flow_2h' in danger_stations.columns:
+                            cols_to_show.append('xgb_predicted_bikes_2h')
+                            cols_to_show.append('xgb_net_flow_2h')
+                            col_names.append('예상 자전거(2h)')
+                            col_names.append('순 변화량')
+                        
+                        display_danger = danger_stations[cols_to_show].copy()
                         display_danger['stockout_probability'] = (display_danger['stockout_probability'] * 100).round(1)
-                        display_danger.columns = ['대여소명', 'ID', '현재 자전거', '거치대', '재고부족 확률(%)']
-                        st.dataframe(display_danger.sort_values('재고부족 확률(%)', ascending=False), 
-                                    use_container_width=True, hide_index=True, height=400)
+                        
+                        if 'xgb_predicted_bikes_2h' in display_danger.columns:
+                            display_danger['xgb_predicted_bikes_2h'] = display_danger['xgb_predicted_bikes_2h'].round(0).astype(int)
+                            display_danger['xgb_net_flow_2h'] = display_danger['xgb_net_flow_2h'].apply(lambda x: f"{x:+.0f}" if pd.notna(x) else "")
+                        
+                        display_danger.columns = col_names
+                        
+                        # Style the dataframe with light gray background for XGBoost columns
+                        styled_df = display_danger.sort_values(col_names[4], ascending=False).style
+                        if '예상 자전거(2h)' in display_danger.columns:
+                            styled_df = styled_df.set_properties(**{'background-color': '#f3f4f6'}, 
+                                                                subset=['예상 자전거(2h)', '순 변화량'])
+                        
+                        st.dataframe(styled_df, use_container_width=True, hide_index=True, height=400)
             
             # Distribution Chart - 3 Categories
             st.markdown("### 📊 위험도 분포")
@@ -788,12 +891,292 @@ def main():
             )
             st.plotly_chart(fig, use_container_width=True)
     
+        # XGBoost Predictions Tab
+        with tab3:
+            st.markdown("### 📊 XGBoost Net Flow 예측")
+            st.markdown("XGBoost 회귀 모델을 통한 2시간 후 자전거 순 흐름 예측")
+            st.info("📊 필터를 설정하고 '예측 실행' 버튼을 클릭하여 선택된 대여소의 예측을 확인하세요")
+            
+            # Get XGBoost model info
+            xgb_model_info = api_client.get_xgboost_model_info()
+            
+            if xgb_model_info:
+                # Model Performance Metrics
+                st.markdown("### 📈 모델 성능 지표")
+                xgb_col1, xgb_col2, xgb_col3, xgb_col4 = st.columns(4)
+                
+                with xgb_col1:
+                    mae = xgb_model_info.get('metrics', {}).get('mae', 1.62)
+                    st.metric(
+                        label="📏 MAE",
+                        value=f"{mae:.2f} 대",
+                        help="Mean Absolute Error - 평균 절대 오차"
+                    )
+                
+                with xgb_col2:
+                    rmse = xgb_model_info.get('metrics', {}).get('rmse', 2.34)
+                    st.metric(
+                        label="📊 RMSE",
+                        value=f"{rmse:.2f} 대",
+                        help="Root Mean Square Error - 제곱근 평균 제곱 오차"
+                    )
+                
+                with xgb_col3:
+                    r2 = xgb_model_info.get('metrics', {}).get('r2', 0.39)
+                    st.metric(
+                        label="🎯 R²",
+                        value=f"{r2:.2%}",
+                        help="결정 계수 - 모델 설명력"
+                    )
+                
+                with xgb_col4:
+                    st.metric(
+                        label="⏱️ 예측 시간",
+                        value="2시간 후",
+                        help="순 흐름 예측 시간 범위"
+                    )
+            
+            # Filters
+            st.markdown("### 🔍 필터 옵션")
+            filter_col1, filter_col2, filter_col3 = st.columns(3)
+            
+            with filter_col1:
+                # District filter
+                all_districts = df['district'].unique() if 'district' in df.columns else []
+                selected_district = st.selectbox(
+                    "구 선택",
+                    ["전체"] + list(all_districts) if len(all_districts) > 0 else ["전체"],
+                    key="xgb_district"
+                )
+            
+            with filter_col2:
+                # Station search
+                search_query = st.text_input(
+                    "대여소 검색",
+                    placeholder="대여소명 또는 ID 입력",
+                    key="xgb_search"
+                )
+            
+            with filter_col3:
+                # Confidence level filter
+                confidence_filter = st.selectbox(
+                    "신뢰도 수준",
+                    ["전체", "높음", "중간", "낮음"],
+                    key="xgb_confidence"
+                )
+            
+            # Apply filters
+            filtered_df = df.copy()
+            
+            if selected_district != "전체" and 'district' in filtered_df.columns:
+                filtered_df = filtered_df[filtered_df['district'] == selected_district]
+            
+            if search_query:
+                mask = (
+                    filtered_df['station_name'].str.contains(search_query, case=False, na=False) |
+                    filtered_df['station_id'].str.contains(search_query, case=False, na=False)
+                )
+                filtered_df = filtered_df[mask]
+            
+            # Show how many stations match filter
+            st.info(f"📊 필터 조건에 맞는 대여소: {len(filtered_df)}개")
+            
+            # Add predict button
+            col1, col2, col3 = st.columns([2, 1, 2])
+            with col2:
+                predict_button = st.button("🔮 예측 실행", key="run_xgb_prediction", type="primary")
+            
+            # Main predictions table
+            st.markdown("### 📋 XGBoost 예측 결과")
+            
+            # Handle prediction button click
+            if predict_button and len(filtered_df) > 0:
+                if len(filtered_df) > 100:
+                    st.warning("⚠️ 100개 이상의 대여소가 선택되었습니다. 상위 100개만 예측합니다.")
+                    filtered_df = filtered_df.head(100)
+                
+                with st.spinner(f"🔮 {len(filtered_df)}개 대여소 예측 중..."):
+                    station_ids = filtered_df['station_id'].tolist()
+                    xgb_batch_result = api_client.get_xgboost_batch(station_ids)
+                    
+                    if xgb_batch_result and 'predictions' in xgb_batch_result:
+                        xgb_predictions_df = pd.DataFrame(xgb_batch_result['predictions'])
+                        # Store in session state
+                        st.session_state['xgb_tab_predictions'] = xgb_predictions_df
+                        st.success(f"✅ {len(xgb_predictions_df)}개 대여소 예측 완료!")
+                    else:
+                        st.error("❌ 예측 실행 실패. API 서버를 확인해주세요.")
+            
+            # Check if we have predictions in session state
+            if 'xgb_tab_predictions' in st.session_state and st.session_state['xgb_tab_predictions'] is not None:
+                xgb_predictions_df = st.session_state['xgb_tab_predictions']
+                
+                # Validate that predictions DataFrame has required columns
+                if xgb_predictions_df.empty:
+                    st.warning("⚠️ 예측 데이터가 비어있습니다.")
+                elif 'station_id' not in xgb_predictions_df.columns:
+                    st.error(f"❌ 예측 데이터에 station_id 컬럼이 없습니다. 사용 가능한 컬럼: {list(xgb_predictions_df.columns)}")
+                else:
+                    try:
+                        # Merge with filtered_df to get station names
+                        merged_df = pd.merge(
+                            filtered_df[['station_id', 'station_name', 'available_bikes']],
+                            xgb_predictions_df,
+                            on='station_id',
+                            how='inner'
+                        )
+                        # Prepare display dataframe
+                        xgb_display_cols = [
+                            'station_name', 'station_id', 'current_bikes', 
+                            'predicted_bikes_2h', 'predicted_net_flow_2h', 'confidence_level'
+                        ]
+                        
+                        # Filter columns that exist
+                        xgb_display_cols = [col for col in xgb_display_cols if col in merged_df.columns]
+                        
+                        xgb_display = merged_df[xgb_display_cols].copy()
+                        
+                        # Format columns
+                        if 'predicted_bikes_2h' in xgb_display.columns:
+                            xgb_display['predicted_bikes_2h'] = xgb_display['predicted_bikes_2h'].round(0).astype(int)
+                        
+                        if 'predicted_net_flow_2h' in xgb_display.columns:
+                            xgb_display['predicted_net_flow_2h'] = xgb_display['predicted_net_flow_2h'].apply(
+                                lambda x: f"{x:+.0f}" if pd.notna(x) else "N/A"
+                            )
+                        
+                        if 'confidence_level' in xgb_display.columns:
+                            confidence_korean = {"high": "높음", "medium": "중간", "low": "낮음"}
+                            xgb_display['confidence_level'] = xgb_display['confidence_level'].map(confidence_korean).fillna("N/A")
+                        
+                        # Rename columns to Korean
+                        column_mapping = {
+                            'station_name': '대여소명',
+                            'station_id': 'ID',
+                            'available_bikes': '현재 자전거',
+                            'current_bikes': '현재 자전거',
+                            'predicted_bikes_2h': '예상 자전거(2h)',
+                            'predicted_net_flow_2h': '순 변화량',
+                            'confidence_level': '신뢰도'
+                        }
+                        xgb_display.rename(columns=column_mapping, inplace=True)
+                        
+                        # Display table
+                        st.dataframe(
+                            xgb_display,
+                            use_container_width=True,
+                            hide_index=True,
+                            height=400
+                        )
+                        
+                        # Insights section
+                        st.markdown("### 💡 주요 인사이트")
+                        
+                        insight_col1, insight_col2 = st.columns(2)
+                        
+                        with insight_col1:
+                            # Top gaining stations
+                            st.markdown("#### 📈 자전거 증가 예상 TOP 5")
+                            if 'predicted_net_flow_2h' in merged_df.columns:
+                                # Use numeric values directly for sorting
+                                top_gaining = merged_df.nlargest(5, 'predicted_net_flow_2h')[
+                                    ['station_name', 'current_bikes', 'predicted_net_flow_2h', 'predicted_bikes_2h']
+                                ]
+                                
+                                if not top_gaining.empty:
+                                    for idx, row in top_gaining.iterrows():
+                                        st.markdown(f"""
+                                        <div style="background: #f0fdf4; padding: 0.5rem; border-radius: 6px; margin-bottom: 0.5rem;
+                                                    border-left: 3px solid #7FDE99;">
+                                            <div style="font-weight: 600; color: #166534;">
+                                                {row['station_name'][:20]}...
+                                            </div>
+                                            <div style="color: #64748b; font-size: 0.875rem;">
+                                                현재: {row['current_bikes']}대 → 예상: {row['predicted_bikes_2h']:.0f}대 
+                                                <span style="color: #059669; font-weight: 600;">(+{row['predicted_net_flow_2h']:.0f})</span>
+                                            </div>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                        
+                        with insight_col2:
+                            # Top losing stations
+                            st.markdown("#### 📉 자전거 감소 예상 TOP 5")
+                            if 'predicted_net_flow_2h' in merged_df.columns:
+                                top_losing = merged_df.nsmallest(5, 'predicted_net_flow_2h')[
+                                    ['station_name', 'current_bikes', 'predicted_net_flow_2h', 'predicted_bikes_2h']
+                                ]
+                                
+                                if not top_losing.empty:
+                                    for idx, row in top_losing.iterrows():
+                                        st.markdown(f"""
+                                        <div style="background: #fef2f2; padding: 0.5rem; border-radius: 6px; margin-bottom: 0.5rem;
+                                                    border-left: 3px solid #ef4444;">
+                                            <div style="font-weight: 600; color: #991b1b;">
+                                                {row['station_name'][:20]}...
+                                            </div>
+                                            <div style="color: #64748b; font-size: 0.875rem;">
+                                                현재: {row['current_bikes']}대 → 예상: {row['predicted_bikes_2h']:.0f}대
+                                                <span style="color: #dc2626; font-weight: 600;">({row['predicted_net_flow_2h']:.0f})</span>
+                                            </div>
+                                        </div>
+                                        """, unsafe_allow_html=True)
+                        
+                        # Summary statistics
+                        st.markdown("### 📊 전체 통계")
+                        stat_col1, stat_col2, stat_col3 = st.columns(3)
+                        
+                        with stat_col1:
+                            if 'predicted_net_flow_2h' in merged_df.columns:
+                                gaining_count = (merged_df['predicted_net_flow_2h'] > 0).sum()
+                                st.metric(
+                                    "증가 예상 대여소",
+                                    f"{gaining_count}개",
+                                    f"{gaining_count/len(merged_df)*100:.1f}%"
+                                )
+                        
+                        with stat_col2:
+                            if 'predicted_net_flow_2h' in merged_df.columns:
+                                losing_count = (merged_df['predicted_net_flow_2h'] < 0).sum()
+                                st.metric(
+                                    "감소 예상 대여소",
+                                    f"{losing_count}개",
+                                    f"{losing_count/len(merged_df)*100:.1f}%"
+                                )
+                        
+                        with stat_col3:
+                            if 'predicted_net_flow_2h' in merged_df.columns:
+                                avg_flow = merged_df['predicted_net_flow_2h'].mean()
+                                st.metric(
+                                    "평균 순 흐름",
+                                    f"{avg_flow:+.1f}대",
+                                    "2시간 후 예측"
+                                )
+                    except Exception as e:
+                        st.error(f"❌ 데이터 처리 중 오류 발생: {str(e)}")
+                        st.info("디버그 정보: xgb_predictions_df 컬럼: " + str(list(xgb_predictions_df.columns)))
+            else:
+                # Show placeholder when no predictions are loaded
+                st.info("📊 필터를 설정하고 '예측 실행' 버튼을 클릭하여 XGBoost 예측을 확인하세요.")
+                
+                # Show empty state
+                empty_col1, empty_col2, empty_col3 = st.columns([1, 2, 1])
+                with empty_col2:
+                    st.markdown("""
+                    <div style="text-align: center; padding: 3rem; color: #94a3b8;">
+                        <div style="font-size: 3rem; margin-bottom: 1rem;">🔮</div>
+                        <div style="font-size: 1.2rem; font-weight: 600;">예측 대기 중</div>
+                        <div style="font-size: 0.9rem; margin-top: 0.5rem;">
+                            필터를 설정하고 '예측 실행' 버튼을 클릭하세요
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+    
     else:
         st.error("⚠️ 데이터를 불러올 수 없습니다. API 서버 연결을 확인해주세요.")
     
     # Auto-refresh
     if st.session_state.auto_refresh:
-        time.sleep(300)  # Refresh every 5 minutes
+        time.sleep(900)  # Refresh every 15 minutes
         st.rerun()
 
 if __name__ == "__main__":

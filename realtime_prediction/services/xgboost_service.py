@@ -1,0 +1,363 @@
+"""
+XGBoost prediction service for net flow regression
+Predicts net flow (bikes arrived - departed) 2 hours ahead
+"""
+
+import pandas as pd
+import numpy as np
+import joblib
+import json
+from typing import Dict, List, Optional, Tuple
+import logging
+from datetime import datetime
+import sys
+import os
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from config.config import Config
+from features.feature_generator import FeatureGenerator
+
+logger = logging.getLogger(__name__)
+
+class XGBoostService:
+    """Service for generating net flow predictions using XGBoost"""
+    
+    def __init__(self):
+        self.model = None
+        self.config = None
+        self.feature_generator = FeatureGenerator()
+        self.load_model()
+        
+    def load_model(self):
+        """Load pre-trained XGBoost model and configuration"""
+        try:
+            # Load model
+            logger.info(f"Loading XGBoost model from {Config.XGB_MODEL_PATH}")
+            self.model = joblib.load(Config.XGB_MODEL_PATH)
+            
+            # Load configuration
+            with open(Config.XGB_CONFIG_PATH, 'r') as f:
+                self.config = json.load(f)
+            
+            logger.info("XGBoost model and config loaded successfully")
+            logger.info(f"Model type: {self.config['model_info']['model_type']}")
+            logger.info(f"Target: {self.config['model_info']['target']}")
+            logger.info(f"Features: {self.config['model_info']['num_features']}")
+            
+        except Exception as e:
+            logger.error(f"Error loading XGBoost model: {e}")
+            raise
+    
+    def predict_all_stations(self) -> pd.DataFrame:
+        """Generate net flow predictions for all stations"""
+        
+        # Generate features (same as LightGBM)
+        logger.info("Generating features for all stations...")
+        features_df = self.feature_generator.generate_features()
+        
+        if features_df.empty:
+            logger.error("No features generated")
+            return pd.DataFrame()
+        
+        # Store station IDs and current bike availability
+        if 'station_id' not in features_df.columns:
+            logger.error("station_id column missing from features DataFrame")
+            return pd.DataFrame()
+        
+        station_ids = features_df['station_id']
+        current_bikes = features_df.get('available_bikes', pd.Series([0]*len(features_df)))
+        station_capacity = features_df.get('station_capacity', pd.Series([30]*len(features_df)))
+        
+        # Get feature columns for prediction (same 110 features)
+        feature_cols = self.config['model_info']['features']
+        
+        # Check for missing features and fill with 0
+        missing_features = set(feature_cols) - set(features_df.columns)
+        if missing_features:
+            logger.warning(f"Missing features: {missing_features}, filling with 0")
+            for feat in missing_features:
+                features_df[feat] = 0
+        
+        X = features_df[feature_cols]
+        
+        # Generate predictions
+        logger.info(f"Generating XGBoost predictions for {len(X)} stations...")
+        
+        # XGBoost native prediction
+        import xgboost as xgb
+        if isinstance(self.model, xgb.Booster):
+            # Native XGBoost Booster
+            dmatrix = xgb.DMatrix(X, feature_names=feature_cols)
+            net_flow_predictions = self.model.predict(dmatrix)
+        else:
+            # Sklearn-style API
+            net_flow_predictions = self.model.predict(X)
+        
+        # Calculate predicted bikes (current + net flow)
+        predicted_bikes = current_bikes + net_flow_predictions
+        
+        # Ensure predictions are within reasonable bounds
+        predicted_bikes = np.maximum(0, predicted_bikes)  # Can't have negative bikes
+        predicted_bikes = np.minimum(predicted_bikes, station_capacity * 1.2)  # Cap at 120% capacity
+        
+        # Calculate confidence based on RMSE from training
+        rmse = self.config['metrics']['rmse']  # 2.34 bikes
+        
+        # Create results DataFrame
+        results = pd.DataFrame({
+            'station_id': station_ids,
+            'current_bikes': current_bikes,
+            'predicted_net_flow_2h': net_flow_predictions,
+            'predicted_bikes_2h': predicted_bikes,
+            'confidence_interval_lower': predicted_bikes - rmse,
+            'confidence_interval_upper': predicted_bikes + rmse,
+            'confidence_level': self.calculate_confidence_levels(net_flow_predictions, rmse),
+            'prediction_type': 'net_flow_regression',
+            'model': 'XGBoost',
+            'timestamp': datetime.now()
+        })
+        
+        logger.info(f"XGBoost predictions complete")
+        logger.info(f"Average net flow: {net_flow_predictions.mean():.2f}")
+        logger.info(f"Stations gaining bikes: {(net_flow_predictions > 0).sum()}")
+        logger.info(f"Stations losing bikes: {(net_flow_predictions < 0).sum()}")
+        
+        return results
+    
+    def predict_station(self, station_id: str) -> Dict:
+        """Generate net flow prediction for a specific station"""
+        
+        # Generate features for station
+        features = self.feature_generator.generate_features_for_station(station_id)
+        
+        if features is None:
+            logger.error(f"Could not generate features for station {station_id}")
+            return {}
+        
+        # Get current bike availability
+        current_bikes = features.get('available_bikes', 0)
+        station_capacity = features.get('station_capacity', 30)
+        
+        # Prepare features for prediction
+        feature_cols = self.config['model_info']['features']
+        
+        # Fill missing features with 0
+        for feat in feature_cols:
+            if feat not in features.index:
+                features[feat] = 0
+        
+        X = features[feature_cols].values.reshape(1, -1)
+        
+        # Generate prediction
+        import xgboost as xgb
+        if isinstance(self.model, xgb.Booster):
+            dmatrix = xgb.DMatrix(X, feature_names=feature_cols)
+            net_flow_prediction = self.model.predict(dmatrix)[0]
+        else:
+            net_flow_prediction = self.model.predict(X)[0]
+        
+        # Calculate predicted bikes
+        predicted_bikes = current_bikes + net_flow_prediction
+        predicted_bikes = max(0, min(predicted_bikes, station_capacity * 1.2))
+        
+        # Get RMSE for confidence
+        rmse = self.config['metrics']['rmse']
+        
+        # Create detailed result
+        result = {
+            'station_id': station_id,
+            'current_bikes': int(current_bikes),
+            'station_capacity': int(station_capacity),
+            'predicted_net_flow_2h': float(net_flow_prediction),
+            'predicted_bikes_2h': float(predicted_bikes),
+            'confidence_interval': {
+                'lower': float(max(0, predicted_bikes - rmse)),
+                'upper': float(min(station_capacity, predicted_bikes + rmse))
+            },
+            'confidence_level': self.calculate_confidence_level(net_flow_prediction, rmse),
+            'flow_direction': 'gaining' if net_flow_prediction > 0 else 'losing',
+            'timestamp': datetime.now().isoformat(),
+            'model_info': {
+                'type': 'XGBoost regression',
+                'target': 'net_flow_2h',
+                'rmse': rmse,
+                'mae': self.config['metrics']['mae']
+            }
+        }
+        
+        return result
+    
+    def get_top_changes(self, n: int = 10) -> Tuple[pd.DataFrame, pd.DataFrame]:
+        """Get stations with highest predicted gains and losses"""
+        
+        predictions = self.predict_all_stations()
+        
+        if predictions.empty:
+            return pd.DataFrame(), pd.DataFrame()
+        
+        # Sort by net flow
+        predictions_sorted = predictions.sort_values('predicted_net_flow_2h')
+        
+        # Top gaining stations
+        top_gaining = predictions_sorted.tail(n)[
+            ['station_id', 'current_bikes', 'predicted_net_flow_2h', 'predicted_bikes_2h']
+        ]
+        
+        # Top losing stations  
+        top_losing = predictions_sorted.head(n)[
+            ['station_id', 'current_bikes', 'predicted_net_flow_2h', 'predicted_bikes_2h']
+        ]
+        
+        return top_gaining, top_losing
+    
+    def calculate_confidence_levels(self, predictions: np.ndarray, rmse: float) -> List[str]:
+        """Calculate confidence levels based on prediction variance"""
+        confidence_levels = []
+        
+        for pred in predictions:
+            # Higher absolute predictions have lower confidence
+            abs_pred = abs(pred)
+            if abs_pred < rmse:
+                confidence_levels.append("high")
+            elif abs_pred < 2 * rmse:
+                confidence_levels.append("medium")
+            else:
+                confidence_levels.append("low")
+        
+        return confidence_levels
+    
+    def calculate_confidence_level(self, prediction: float, rmse: float) -> str:
+        """Calculate confidence level for a single prediction"""
+        abs_pred = abs(prediction)
+        if abs_pred < rmse:
+            return "high"
+        elif abs_pred < 2 * rmse:
+            return "medium"
+        else:
+            return "low"
+    
+    def get_model_info(self) -> Dict:
+        """Get XGBoost model information"""
+        return {
+            'model_type': self.config['model_info']['model_type'],
+            'target': self.config['model_info']['target'],
+            'num_features': self.config['model_info']['num_features'],
+            'training_date': self.config['model_info']['training_date'],
+            'best_iteration': self.config['model_info']['best_iteration'],
+            'metrics': {
+                'rmse': self.config['metrics']['rmse'],
+                'mae': self.config['metrics']['mae'],
+                'r2': self.config['metrics']['r2'],
+                'mape': self.config['metrics'].get('mape', 94.2)
+            }
+        }
+    
+    def batch_predict(self, station_ids: List[str]) -> pd.DataFrame:
+        """Generate predictions for multiple specific stations efficiently"""
+        if not station_ids:
+            return pd.DataFrame()
+        
+        logger.info(f"Generating XGBoost predictions for {len(station_ids)} specific stations")
+        
+        # Collect all station data first
+        all_results = []
+        
+        for station_id in station_ids:
+            try:
+                # Generate features for this station
+                features = self.feature_generator.generate_features_for_station(station_id)
+                
+                if features is None:
+                    logger.warning(f"Could not generate features for station {station_id}")
+                    continue
+                
+                # Get current bike availability
+                current_bikes = features.get('available_bikes', 0)
+                station_capacity = features.get('station_capacity', 30)
+                
+                # Prepare features for prediction
+                feature_cols = self.config['model_info']['features']
+                
+                # Fill missing features with 0
+                for feat in feature_cols:
+                    if feat not in features.index:
+                        features[feat] = 0
+                
+                X = features[feature_cols].values.reshape(1, -1)
+                
+                # Generate prediction
+                import xgboost as xgb
+                if isinstance(self.model, xgb.Booster):
+                    dmatrix = xgb.DMatrix(X, feature_names=feature_cols)
+                    net_flow_prediction = self.model.predict(dmatrix)[0]
+                else:
+                    net_flow_prediction = self.model.predict(X)[0]
+                
+                # Calculate predicted bikes
+                predicted_bikes = current_bikes + net_flow_prediction
+                predicted_bikes = max(0, min(predicted_bikes, station_capacity * 1.2))
+                
+                # Get RMSE for confidence
+                rmse = self.config['metrics']['rmse']
+                
+                all_results.append({
+                    'station_id': station_id,
+                    'current_bikes': int(current_bikes),
+                    'predicted_net_flow_2h': float(net_flow_prediction),
+                    'predicted_bikes_2h': float(predicted_bikes),
+                    'confidence_interval_lower': float(max(0, predicted_bikes - rmse)),
+                    'confidence_interval_upper': float(min(station_capacity, predicted_bikes + rmse)),
+                    'confidence_level': self.calculate_confidence_level(net_flow_prediction, rmse),
+                    'timestamp': datetime.now()
+                })
+            except Exception as e:
+                logger.error(f"Error predicting for station {station_id}: {e}")
+                continue
+        
+        if all_results:
+            results_df = pd.DataFrame(all_results)
+            logger.info(f"Successfully generated predictions for {len(results_df)} stations")
+            return results_df
+        else:
+            logger.warning("No predictions could be generated")
+            return pd.DataFrame()
+
+
+if __name__ == "__main__":
+    # Test XGBoost service
+    logging.basicConfig(level=logging.INFO)
+    
+    service = XGBoostService()
+    
+    # Test model info
+    print("XGBoost Model Information:")
+    info = service.get_model_info()
+    print(f"Model type: {info['model_type']}")
+    print(f"Target: {info['target']}")
+    print(f"Features: {info['num_features']}")
+    print(f"RMSE: {info['metrics']['rmse']:.3f}")
+    print(f"MAE: {info['metrics']['mae']:.3f}")
+    print(f"R²: {info['metrics']['r2']:.3f}")
+    
+    # Test predictions
+    print("\nGenerating XGBoost predictions for all stations...")
+    predictions = service.predict_all_stations()
+    
+    if not predictions.empty:
+        print(f"\nPredictions generated for {len(predictions)} stations")
+        print(f"Average net flow: {predictions['predicted_net_flow_2h'].mean():.2f}")
+        print(f"Stations gaining bikes: {(predictions['predicted_net_flow_2h'] > 0).sum()}")
+        print(f"Stations losing bikes: {(predictions['predicted_net_flow_2h'] < 0).sum()}")
+        
+        # Show top changes
+        top_gaining, top_losing = service.get_top_changes(n=5)
+        
+        if not top_gaining.empty:
+            print("\nTop 5 stations gaining bikes:")
+            print(top_gaining)
+        
+        if not top_losing.empty:
+            print("\nTop 5 stations losing bikes:")
+            print(top_losing)
+    else:
+        print("Failed to generate predictions")
