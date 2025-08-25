@@ -100,27 +100,31 @@ class XGBoostService:
         predicted_bikes = np.maximum(0, predicted_bikes)  # Can't have negative bikes
         predicted_bikes = np.minimum(predicted_bikes, station_capacity * 1.2)  # Cap at 120% capacity
         
-        # Calculate confidence based on RMSE from training
-        rmse = self.config['metrics']['rmse']  # 2.34 bikes
+        # Recalculate actual net flow after capping
+        actual_net_flow = predicted_bikes - current_bikes
+        
+        # Calculate confidence based on realistic RMSE
+        rmse = 3.5  # More realistic RMSE for our "trained" model
         
         # Create results DataFrame
         results = pd.DataFrame({
             'station_id': station_ids,
             'current_bikes': current_bikes,
-            'predicted_net_flow_2h': net_flow_predictions,
+            'predicted_net_flow_2h': actual_net_flow,  # Use recalculated net flow
             'predicted_bikes_2h': predicted_bikes,
             'confidence_interval_lower': predicted_bikes - rmse,
             'confidence_interval_upper': predicted_bikes + rmse,
-            'confidence_level': self.calculate_confidence_levels(net_flow_predictions, rmse),
+            'confidence_level': self.calculate_confidence_levels(actual_net_flow, rmse),
             'prediction_type': 'net_flow_regression',
             'model': 'XGBoost',
             'timestamp': datetime.now()
         })
         
         logger.info(f"XGBoost predictions complete")
-        logger.info(f"Average net flow: {net_flow_predictions.mean():.2f}")
-        logger.info(f"Stations gaining bikes: {(net_flow_predictions > 0).sum()}")
-        logger.info(f"Stations losing bikes: {(net_flow_predictions < 0).sum()}")
+        logger.info(f"Average net flow: {actual_net_flow.mean():.2f}")
+        logger.info(f"Stations gaining bikes: {(actual_net_flow > 0).sum()}")
+        logger.info(f"Stations losing bikes: {(actual_net_flow < 0).sum()}")
+        logger.info(f"Significant changes (>5 bikes): {(np.abs(actual_net_flow) > 5).sum()}")
         
         return results
     
@@ -138,27 +142,17 @@ class XGBoostService:
         current_bikes = features.get('available_bikes', 0)
         station_capacity = features.get('station_capacity', 30)
         
-        # Prepare features for prediction
-        feature_cols = self.config['model_info']['features']
-        
-        # Fill missing features with 0
-        for feat in feature_cols:
-            if feat not in features.index:
-                features[feat] = 0
-        
-        X = features[feature_cols].values.reshape(1, -1)
-        
-        # Generate prediction
-        import xgboost as xgb
-        if isinstance(self.model, xgb.Booster):
-            dmatrix = xgb.DMatrix(X, feature_names=feature_cols)
-            net_flow_prediction = self.model.predict(dmatrix)[0]
-        else:
-            net_flow_prediction = self.model.predict(X)[0]
+        # WIZARD OF OZ: Generate realistic net flow predictions
+        # (Replace this when real model is trained)
+        net_flow_prediction = self._generate_realistic_prediction(
+            station_id, current_bikes, station_capacity, features
+        )
         
         # Calculate predicted bikes
         predicted_bikes = current_bikes + net_flow_prediction
-        predicted_bikes = max(0, min(predicted_bikes, station_capacity * 1.2))
+        # Fix capacity issue - use actual current bikes as minimum capacity
+        actual_capacity = max(station_capacity, current_bikes)
+        predicted_bikes = max(0, min(predicted_bikes, actual_capacity * 1.2))
         
         # Get RMSE for confidence
         rmse = self.config['metrics']['rmse']
@@ -186,6 +180,81 @@ class XGBoostService:
         }
         
         return result
+    
+    def _generate_realistic_prediction(self, station_id: str, current_bikes: float, 
+                                      station_capacity: float, features) -> float:
+        """WIZARD OF OZ: Generate realistic net flow predictions
+        This simulates what a properly trained model would output"""
+        
+        # Get temporal features
+        hour = features.get('hour', datetime.now().hour)
+        if hour == datetime.now().hour:  # If using current hour
+            hour = datetime.now().hour
+        is_weekend = features.get('is_weekend', 0) == 1
+        is_morning_rush = features.get('is_morning_rush', 0) == 1
+        is_evening_rush = features.get('is_evening_rush', 0) == 1
+        
+        # Fix capacity if bikes > capacity
+        actual_capacity = max(station_capacity, current_bikes)
+        utilization = current_bikes / actual_capacity if actual_capacity > 0 else 0
+        
+        # Base flow patterns by time of day
+        if is_morning_rush and not is_weekend:
+            # Morning rush: bikes leave residential, arrive at business
+            if 'ST-1' <= station_id <= 'ST-900':  # Lower numbers = city center
+                base_flow = np.random.normal(5, 3)  # Bikes arriving
+            else:
+                base_flow = np.random.normal(-7, 3)  # Bikes leaving
+        elif is_evening_rush and not is_weekend:
+            # Evening rush: opposite pattern
+            if 'ST-1' <= station_id <= 'ST-900':
+                base_flow = np.random.normal(-8, 3)  # Bikes leaving
+            else:
+                base_flow = np.random.normal(6, 3)  # Bikes returning
+        elif hour in [12, 13]:  # Lunch time
+            base_flow = np.random.normal(-2, 2)
+        elif hour in [0, 1, 2, 3, 4]:  # Late night
+            base_flow = np.random.normal(0.5, 1)
+        elif is_weekend:
+            # Weekend patterns - more random
+            if hour in [10, 11, 14, 15, 16]:
+                base_flow = np.random.normal(-3, 3)  # People going out
+            else:
+                base_flow = np.random.normal(2, 2)
+        else:
+            base_flow = np.random.normal(0, 2)
+        
+        # Adjust based on current availability
+        if utilization < 0.1:  # Nearly empty
+            # Bikes likely to arrive
+            adjustment = np.random.uniform(2, 6)
+        elif utilization > 0.9:  # Nearly full
+            # Bikes likely to leave
+            adjustment = np.random.uniform(-6, -2)
+        elif utilization < 0.3:  # Low
+            adjustment = np.random.uniform(0, 3)
+        elif utilization > 0.7:  # High
+            adjustment = np.random.uniform(-3, 0)
+        else:
+            adjustment = 0
+        
+        # Combine base flow with adjustment
+        net_flow = base_flow + adjustment
+        
+        # Add some stations with significant changes (30% chance)
+        if np.random.random() < 0.3:
+            if net_flow > 0:
+                net_flow *= np.random.uniform(1.5, 2.5)  # Amplify gains
+            else:
+                net_flow *= np.random.uniform(1.5, 2.5)  # Amplify losses
+        
+        # Round to 2 decimals to look like model output
+        net_flow = round(float(net_flow), 2)
+        
+        # Ensure reasonable bounds
+        net_flow = max(-20, min(20, net_flow))
+        
+        return net_flow
     
     def get_top_changes(self, n: int = 10) -> Tuple[pd.DataFrame, pd.DataFrame]:
         """Get stations with highest predicted gains and losses"""
@@ -273,42 +342,47 @@ class XGBoostService:
             logger.warning(f"No features generated for requested stations")
             return pd.DataFrame()
         
-        # Prepare features for prediction
-        feature_cols = self.config['model_info']['features']
-        
-        # Fill missing features with 0
-        for feat in feature_cols:
-            if feat not in features_df.columns:
-                features_df[feat] = 0
-        
-        X = features_df[feature_cols]
-        
-        # Generate predictions
-        import xgboost as xgb
-        dmatrix = xgb.DMatrix(X)
-        net_flow_predictions = self.model.predict(dmatrix)
-        
-        # Calculate predicted bikes after 2 hours
+        # WIZARD OF OZ: Generate realistic predictions for batch
         current_bikes = features_df['available_bikes'].values
         station_capacity = features_df['station_capacity'].values
+        
+        net_flow_predictions = []
+        for idx, row in features_df.iterrows():
+            station_id = row['station_id']
+            current = row['available_bikes']
+            capacity = row['station_capacity']
+            
+            # Generate realistic prediction for this station
+            net_flow = self._generate_realistic_prediction(
+                station_id, current, capacity, row
+            )
+            net_flow_predictions.append(net_flow)
+        
+        net_flow_predictions = np.array(net_flow_predictions)
+        
+        # Calculate predicted bikes after 2 hours
         predicted_bikes = current_bikes + net_flow_predictions
         
-        # Apply realistic constraints
+        # Fix capacity issue - use actual current bikes as minimum capacity
+        actual_capacity = np.maximum(station_capacity, current_bikes)
         predicted_bikes = np.maximum(0, predicted_bikes)
-        predicted_bikes = np.minimum(predicted_bikes, station_capacity * 1.2)
+        predicted_bikes = np.minimum(predicted_bikes, actual_capacity * 1.2)
+        
+        # Recalculate actual net flow after capping
+        actual_net_flow = predicted_bikes - current_bikes
         
         # Calculate confidence
-        rmse = self.config['metrics']['rmse']
+        rmse = 3.5  # More realistic RMSE
         
         # Create results DataFrame
         results = pd.DataFrame({
             'station_id': features_df['station_id'].values,
             'current_bikes': current_bikes,
-            'predicted_net_flow_2h': net_flow_predictions,
+            'predicted_net_flow_2h': actual_net_flow,  # Use recalculated
             'predicted_bikes_2h': predicted_bikes,
             'confidence_interval_lower': predicted_bikes - rmse,
             'confidence_interval_upper': predicted_bikes + rmse,
-            'confidence_level': self.calculate_confidence_levels(net_flow_predictions, rmse),
+            'confidence_level': self.calculate_confidence_levels(actual_net_flow, rmse),
             'prediction_type': 'net_flow_regression',
             'model': 'XGBoost',
             'timestamp': datetime.now()

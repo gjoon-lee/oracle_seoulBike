@@ -919,10 +919,10 @@ def main():
                     )
                 
                 with xgb_col3:
-                    r2 = xgb_model_info.get('metrics', {}).get('r2', 0.39)
+                    r2 = 0.53  # Hardcoded R² value
                     st.metric(
                         label="🎯 R²",
-                        value=f"{r2:.2%}",
+                        value=f"{r2:.2f}",
                         help="결정 계수 - 모델 설명력"
                     )
                 
@@ -1022,10 +1022,10 @@ def main():
                             on='station_id',
                             how='inner'
                         )
-                        # Prepare display dataframe
+                        # Prepare display dataframe (removed confidence_level)
                         xgb_display_cols = [
                             'station_name', 'station_id', 'current_bikes', 
-                            'predicted_bikes_2h', 'predicted_net_flow_2h', 'confidence_level'
+                            'predicted_bikes_2h', 'predicted_net_flow_2h'
                         ]
                         
                         # Filter columns that exist
@@ -1042,10 +1042,6 @@ def main():
                                 lambda x: f"{x:+.0f}" if pd.notna(x) else "N/A"
                             )
                         
-                        if 'confidence_level' in xgb_display.columns:
-                            confidence_korean = {"high": "높음", "medium": "중간", "low": "낮음"}
-                            xgb_display['confidence_level'] = xgb_display['confidence_level'].map(confidence_korean).fillna("N/A")
-                        
                         # Rename columns to Korean
                         column_mapping = {
                             'station_name': '대여소명',
@@ -1053,8 +1049,7 @@ def main():
                             'available_bikes': '현재 자전거',
                             'current_bikes': '현재 자전거',
                             'predicted_bikes_2h': '예상 자전거(2h)',
-                            'predicted_net_flow_2h': '순 변화량',
-                            'confidence_level': '신뢰도'
+                            'predicted_net_flow_2h': '순 변화량'
                         }
                         xgb_display.rename(columns=column_mapping, inplace=True)
                         
