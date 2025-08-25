@@ -70,7 +70,7 @@ class Config:
     
     # Cache Configuration
     CACHE_TTL_SECONDS = 300  # 5 minutes
-    HISTORICAL_WINDOW_HOURS = 168  # 7 days for lag features
+    HISTORICAL_WINDOW_HOURS = 48  # Reduced from 168 (7 days) to 48 hours for PERFORMANCE
     CACHE_MAX_SIZE_MB = 500  # Maximum cache size in MB
     
     # Scheduler Configuration
@@ -85,7 +85,7 @@ class Config:
     
     # API Configuration
     API_HOST = "0.0.0.0"
-    API_PORT = 8003  # Changed from 8002 to avoid port conflict
+    API_PORT = 8002  # Standard port for this API
     API_TITLE = "Seoul Bike Stockout Prediction API"
     API_VERSION = "1.0.0"
     API_DESCRIPTION = "Real-time stockout predictions for Seoul bike sharing system"
@@ -95,9 +95,9 @@ class Config:
     LOG_FORMAT = "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
     LOG_FILE = LOGS_DIR / "prediction_api.log"
     
-    # Feature Engineering Configuration
-    LAG_HOURS = [1, 2, 3, 6, 12, 24, 48, 168]
-    ROLLING_WINDOWS = [6, 12, 24, 168]
+    # Feature Engineering Configuration - REDUCED FOR PERFORMANCE
+    LAG_HOURS = [1, 6, 24]  # Reduced from 8 to 3 periods
+    ROLLING_WINDOWS = [6, 24]  # Reduced from 4 to 2 windows
     
     # Station Mapping
     STATION_ID_PREFIX = "ST-"

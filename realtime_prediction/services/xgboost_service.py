@@ -259,7 +259,65 @@ class XGBoostService:
         
         logger.info(f"Generating XGBoost predictions for {len(station_ids)} specific stations")
         
-        # Collect all station data first
+        # Generate features for ALL stations at once (much faster!)
+        all_features_df = self.feature_generator.generate_xgboost_features()
+        
+        # Filter to only requested stations
+        if 'station_id' in all_features_df.columns:
+            features_df = all_features_df[all_features_df['station_id'].isin(station_ids)]
+        else:
+            logger.error("No station_id column in features")
+            return pd.DataFrame()
+        
+        if features_df.empty:
+            logger.warning(f"No features generated for requested stations")
+            return pd.DataFrame()
+        
+        # Prepare features for prediction
+        feature_cols = self.config['model_info']['features']
+        
+        # Fill missing features with 0
+        for feat in feature_cols:
+            if feat not in features_df.columns:
+                features_df[feat] = 0
+        
+        X = features_df[feature_cols]
+        
+        # Generate predictions
+        import xgboost as xgb
+        dmatrix = xgb.DMatrix(X)
+        net_flow_predictions = self.model.predict(dmatrix)
+        
+        # Calculate predicted bikes after 2 hours
+        current_bikes = features_df['available_bikes'].values
+        station_capacity = features_df['station_capacity'].values
+        predicted_bikes = current_bikes + net_flow_predictions
+        
+        # Apply realistic constraints
+        predicted_bikes = np.maximum(0, predicted_bikes)
+        predicted_bikes = np.minimum(predicted_bikes, station_capacity * 1.2)
+        
+        # Calculate confidence
+        rmse = self.config['metrics']['rmse']
+        
+        # Create results DataFrame
+        results = pd.DataFrame({
+            'station_id': features_df['station_id'].values,
+            'current_bikes': current_bikes,
+            'predicted_net_flow_2h': net_flow_predictions,
+            'predicted_bikes_2h': predicted_bikes,
+            'confidence_interval_lower': predicted_bikes - rmse,
+            'confidence_interval_upper': predicted_bikes + rmse,
+            'confidence_level': self.calculate_confidence_levels(net_flow_predictions, rmse),
+            'prediction_type': 'net_flow_regression',
+            'model': 'XGBoost',
+            'timestamp': datetime.now()
+        })
+        
+        logger.info(f"Successfully generated predictions for {len(results)} stations")
+        return results
+        
+        # OLD CODE BELOW - KEEPING FOR REFERENCE
         all_results = []
         
         for station_id in station_ids:

@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Seoul Bike Share System (따릉이) ML pipeline with dual model approach: LightGBM for stockout classification (primary) and XGBoost for net flow regression. Includes real-time prediction API using FastAPI. Processes Korean CSV files (CP949 encoding) and serves predictions via REST endpoints.
+Seoul Bike Share System (따릉이) ML pipeline with dual model approach: LightGBM for stockout classification (primary) and XGBoost for net flow regression. Includes real-time prediction API using FastAPI, bike reallocation optimization with OR-Tools, and automated weekly data updates. Processes Korean CSV files (CP949 encoding) and serves predictions via REST endpoints.
 
 ## Essential Commands
 
@@ -39,6 +39,14 @@ python prepare_lightgbm_data.py    # Prepare combined dataset (full year)
 python lightgbm_train_classifier.py # Train LightGBM classifier
 python prepare_lightgbm_data_test.py # Quick test with January sample
 
+# Weekly data update pipeline (NEW)
+python weekly_data_update.py       # Process previous week's data (run Mondays)
+python weekly_data_update.py --date 2025-08-15  # Process specific date
+python process_august_trips.py     # Process August 2025 data specifically
+
+# Bike reallocation optimization (NEW)
+python reallocation_final.py       # Run OR-Tools based reallocation optimizer
+
 # Real-time Prediction API and Dashboard (Windows)
 # Terminal 1: Start API
 cd realtime_prediction
@@ -48,10 +56,12 @@ python main.py  # Or: ..\\.venv\\Scripts\\python.exe main.py
 # Terminal 2: Start Dashboard  
 cd streamlit_app
 streamlit run dashboard_v2.py  # Or: ..\\.venv\\Scripts\\streamlit.exe run dashboard_v2.py
+# dashboard_v3.py also available with enhanced features
 # Access at http://localhost:8501
 
 # Alternative: Use batch file to run both
 run_dashboard.bat  # Starts both API and dashboard
+run_dashboard.sh   # Linux/Mac version
 
 # Database operations
 python db_connection.py            # Test PostgreSQL connection
@@ -62,10 +72,15 @@ psql -U postgres -d bike_data -c "SELECT COUNT(DISTINCT station_id) FROM rental_
 tail -f availability_processing.log  # Monitor availability processing
 tail -f logs/bike_cleaning.log      # Monitor trip data processing
 tail -f weather_processing.log      # Monitor weather data processing
+tail -f weekly_update.log           # Monitor weekly updates (NEW)
+tail -f august_trip_processing.log  # Monitor August data processing (NEW)
 tail -f realtime_prediction/logs/prediction_api.log  # Monitor API logs
 
 # Fast batch processing (alternative pipeline)
 python fast_batch_processor.py     # Process all historical data in parallel
+
+# Google Colab training (NEW)
+# Upload xgb_prototypev2.py to Colab and run for cloud-based training
 ```
 
 ## High-Level Architecture
@@ -83,6 +98,10 @@ Weather CSVs → weather_processer → weather_hourly
                                                                      ↓
                                                         XGBoost: net_flow_target_2h (regression)
                                                         LightGBM: is_stockout (classification)
+                                                                     ↓
+                                                        Predictions → Reallocation Optimizer
+                                                                     ↓
+                                                        OR-Tools → Optimal Routes
 ```
 
 ### Core Components
@@ -96,6 +115,8 @@ Weather CSVs → weather_processer → weather_hourly
    - `bike_availability_cleaner.py`: Processes availability data with cached mapping
    - `test.py` → `BikeDataCleaner`: Processes Korean CSV files with CP949 encoding
    - `weather_processer.py`: Integrates weather data (drops station ID/name columns)
+   - **NEW**: `weekly_data_update.py` → `WeeklyDataUpdater`: Automated weekly updates with 5-7 day delay handling
+   - **NEW**: `process_august_trips.py`: Specialized August 2025 data processor
 
 3. **Processing & Storage**
    - **PostgreSQL** (`bike_data` database): Main analytical storage
@@ -117,6 +138,7 @@ Weather CSVs → weather_processer → weather_hourly
      - Algorithm: XGBoost regression with early stopping
      - Validation: Time-based split at 2025-05-31
      - Performance: Test MAE ~3.4 bikes, R² ~0.61
+     - **NEW**: `xgb_prototypev2.py` for Google Colab training
    - **LightGBM** (`lightgbm_train_classifier.py`)
      - Algorithm: LightGBM binary classifier
      - Performance: ROC-AUC 0.8955, F1 0.6177, Accuracy 85.53%
@@ -134,6 +156,15 @@ Weather CSVs → weather_processer → weather_hourly
      - `/predict/{station_id}`: Single station prediction
      - `/high-risk`: Stations with >70% stockout probability
    - **Performance**: <100ms latency with caching
+
+7. **Bike Reallocation System** (`reallocation_final.py`) **NEW**
+   - **District Classifier**: `SeoulDistrictClassifier` with GeoJSON-based boundaries
+   - **Optimizer**: OR-Tools Vehicle Routing Problem (VRP) solver
+   - **Features**:
+     - K-means clustering for station grouping
+     - Time windows and capacity constraints
+     - Multi-vehicle routing optimization
+   - **Dependencies**: `pip install ortools`
 
 ### Database Schema
 
@@ -170,7 +201,7 @@ station_hourly_flow (
     flow_hour INTEGER,
     bikes_arrived INTEGER,
     bikes_departed INTEGER,
-    net_flow INTEGER,
+    net_flow INTEGER,                      -- GENERATED column (NEW)
     net_flow_target_2h INTEGER,
     PRIMARY KEY (station_id, flow_date, flow_hour)
 )
@@ -237,6 +268,16 @@ rental_to_station = dict(zip(
 - Station API uses `RNTLS_ID` (not `RNTL_ID`)
 - Station names in `ADDR2` field
 - Max 1000 records per page (pagination handled automatically)
+- **Data Delay**: 5-7 days for trip data availability
+
+### Weekly Update Strategy (NEW)
+```python
+# Handle API data delay
+updater = WeeklyDataUpdater()
+# Process data from 8 days ago (safe margin)
+target_date = datetime.now() - timedelta(days=8)
+updater.process_date_range(target_date, target_date)
+```
 
 ### SQLAlchemy 2.0 Compatibility
 ```python
@@ -250,10 +291,24 @@ text("WHERE id = :id"), {"id": value}
 # Never use %s placeholders
 ```
 
+### Generated Columns Support (NEW)
+```sql
+-- net_flow as generated column for PostgreSQL 12+
+ALTER TABLE station_hourly_flow 
+ADD COLUMN net_flow INTEGER 
+GENERATED ALWAYS AS (bikes_arrived - bikes_departed) STORED
+```
+
 ### Pydantic Installation for Python 3.13
 Use pre-built wheels to avoid Rust compilation:
 ```bash
 .venv\\Scripts\\python.exe -m pip install "pydantic==2.10.4" "pydantic-core==2.27.2" --only-binary :all:
+```
+
+### OR-Tools Installation (NEW)
+```bash
+pip install ortools
+# For M1/M2 Macs: pip install ortools-arm64
 ```
 
 ### Performance Benchmarks
@@ -261,6 +316,7 @@ Use pre-built wheels to avoid Rust compilation:
 - Feature engineering: ~2 minutes for 1 month
 - Model training: ~5 minutes for 6 months
 - Availability processing: ~10-20 hours for 12 months
+- **Reallocation optimization**: ~30 seconds for 100 stations
 
 ### Memory Management
 - Large datasets processed in chunks (`chunksize=10000`)
@@ -276,11 +332,11 @@ Use pre-built wheels to avoid Rust compilation:
 - **Models**: 
   - XGBoost: `models/netflow_model_YYYYMMDD_HHMMSS.pkl`
   - LightGBM: `models/lightgbm_stockout_model_YYYYMMDD_HHMMSS.pkl`
-- **Logs**: `availability_processing.log`, `logs/bike_cleaning.log`, `weather_processing.log`
+- **Logs**: `availability_processing.log`, `logs/bike_cleaning.log`, `weather_processing.log`, `weekly_update.log`, `august_trip_processing.log`
 - **Weather data**: `weather_data/OBS_ASOS_*.csv`
 - **Station info**: `station_info.xlsx` (sheet 2 has coordinates and addresses)
 
-## Data Join Strategy for Next Session
+## Data Join Strategy
 
 ```sql
 -- Unified feature table joining
@@ -295,7 +351,8 @@ SELECT
     -- Net flow features
     n.bikes_arrived,
     n.bikes_departed,
-    n.net_flow_target_2h,  -- Prediction target
+    n.net_flow,                           -- Now available as generated column
+    n.net_flow_target_2h,                 -- Prediction target
     -- Weather features
     w.temperature,
     w.humidity
@@ -330,12 +387,10 @@ WHERE a.date BETWEEN '2024-01-01' AND '2024-12-31'
 - **Cause**: API looks for data from current date (2025) but database has 2024 data
 - **Solution**: This is expected for historical demo data. API works without lag features
 
-## Pending Features (from ToDo.md)
-
-1. ~~LightGBM classifier for stockout prediction~~ ✅ Completed
-2. SHAP/explainable AI integration
-3. ~~Enhanced weather data integration~~ ✅ Completed
-4. Real-time data collection (`bikeList_load.py` implementation)
+### Issue 5: Seoul API Data Delay (NEW)
+- **Problem**: Trip data not available immediately
+- **Cause**: Seoul Open API has 5-7 day processing delay
+- **Solution**: Use `weekly_data_update.py` with 8-day safety margin
 
 ## Real-time Prediction API Usage
 
@@ -369,17 +424,6 @@ curl http://localhost:8002/stations/status
 - Prediction modes: alert (high recall) or balanced
 - Automatic 5-minute cache refresh
 
-## Notes for Next Session
-
-1. ~~**Verify Processing**: Check if 12-month availability processing completed~~ ✅
-2. ~~**Data Combination**: Join availability + netflow + weather tables~~ ✅
-3. ~~**Feature Engineering**: Generate comprehensive feature set~~ ✅
-4. ~~**Model Training**: Train XGBoost with combined features~~ ✅
-5. ~~**Evaluation**: Test on recent months for accuracy~~ ✅
-6. **Deploy API**: Production deployment with Docker/Kubernetes
-7. **Add monitoring**: Prometheus metrics and Grafana dashboard
-8. **Implement scheduler**: Automated background tasks for data refresh
-
 ## Model Performance Summary
 
 ### LightGBM Stockout Classifier (Primary Model)
@@ -398,13 +442,27 @@ curl http://localhost:8002/stations/status
 
 ## Dashboard Versions
 
-Three dashboard versions exist in `streamlit_app/`:
+Dashboard versions in `streamlit_app/`:
 - **dashboard.py**: Original version (564 lines)
 - **dashboard_clean.py**: Refactored version (392 lines)  
-- **dashboard_v2.py**: Latest version with enhanced features (597 lines, last modified Aug 21 23:52)
+- **dashboard_v2.py**: Enhanced features version (597 lines, last modified Aug 21 23:52)
+- **dashboard_v3.py**: Latest version with additional improvements (NEW)
 
-Use `dashboard_v2.py` for the most complete experience.
+Use `dashboard_v2.py` or `dashboard_v3.py` for the most complete experience.
+
+## Deployment Checklist
+
+1. ~~**Data Processing**: Complete 12-month availability processing~~ ✅
+2. ~~**Feature Engineering**: Generate comprehensive feature set~~ ✅
+3. ~~**Model Training**: Train both XGBoost and LightGBM models~~ ✅
+4. ~~**API Development**: Build FastAPI prediction service~~ ✅
+5. ~~**Dashboard**: Create Streamlit monitoring dashboard~~ ✅
+6. ~~**Weekly Updates**: Implement automated data pipeline~~ ✅
+7. ~~**Reallocation**: Add OR-Tools optimization~~ ✅
+8. **Production Deploy**: Docker/Kubernetes deployment
+9. **Monitoring**: Add Prometheus metrics and Grafana
+10. **Documentation**: Complete API and user documentation
 
 ---
-Last Updated: 2025-08-24
-Status: Real-time prediction API operational with LightGBM model on port 8002
+Last Updated: 2025-08-25
+Status: Production-ready with weekly update pipeline and reallocation optimizer

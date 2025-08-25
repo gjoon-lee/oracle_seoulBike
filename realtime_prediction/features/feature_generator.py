@@ -16,7 +16,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from config.config import Config
 from collectors.realtime_bike_collector import RealtimeBikeCollector
 from collectors.realtime_weather_collector import RealtimeWeatherCollector
-from collectors.historical_data_loader import HistoricalDataLoader
+from collectors.historical_data_loader_direct import DirectHistoricalDataLoader
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ class FeatureGenerator:
     def __init__(self):
         self.bike_collector = RealtimeBikeCollector()
         self.weather_collector = RealtimeWeatherCollector()
-        self.history_loader = HistoricalDataLoader()
+        self.history_loader = DirectHistoricalDataLoader()
         
         # Load station profiles
         self.station_profiles = self.load_station_profiles()
@@ -87,13 +87,13 @@ class FeatureGenerator:
         bike_df = self.add_derived_features(bike_df)
         
         if not realtime_only:
-            # 5. Add lag features from historical data
-            logger.info("Adding lag features...")
-            bike_df = self.history_loader.calculate_lag_features(bike_df, Config.LAG_HOURS)
+            # 5. Calculate lag features using DIRECT SQL queries
+            logger.info("Calculating lag features with DIRECT SQL...")
+            bike_df = self.history_loader.calculate_lag_features_direct(bike_df, Config.LAG_HOURS)
             
-            # 6. Add rolling features
-            logger.info("Adding rolling features...")
-            bike_df = self.history_loader.calculate_rolling_features(bike_df, Config.ROLLING_WINDOWS)
+            # 6. Calculate rolling features using DIRECT SQL queries
+            logger.info("Calculating rolling features with DIRECT SQL...")
+            bike_df = self.history_loader.calculate_rolling_features_direct(bike_df, Config.ROLLING_WINDOWS)
             
             # 7. Add station profile features
             logger.info("Adding station profile features...")
@@ -311,11 +311,11 @@ class FeatureGenerator:
         # Add derived features
         df = self.add_derived_features(df)
         
-        # Add lag features from historical data
-        df = self.history_loader.calculate_lag_features(df, Config.LAG_HOURS)
+        # Add lag features using DIRECT SQL
+        df = self.history_loader.calculate_lag_features_direct(df, Config.LAG_HOURS)
         
-        # Add rolling features
-        df = self.history_loader.calculate_rolling_features(df, Config.ROLLING_WINDOWS)
+        # Add rolling features using DIRECT SQL
+        df = self.history_loader.calculate_rolling_features_direct(df, Config.ROLLING_WINDOWS)
         
         # Add station profile features
         df = self.add_station_profile_features(df)

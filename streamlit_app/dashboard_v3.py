@@ -293,7 +293,7 @@ if 'auto_refresh' not in st.session_state:
 # Initialize API client
 @st.cache_resource
 def get_api_client():
-    return BikeAPIClient(base_url="http://localhost:8003")
+    return BikeAPIClient(base_url="http://localhost:8002")
 
 api_client = get_api_client()
 
@@ -354,12 +354,19 @@ def main():
         </div>
         """.format(datetime.now().strftime("%Y-%m-%d %H:%M:%S")), unsafe_allow_html=True)
     
-    # Fetch current data
-    with st.spinner("데이터를 불러오는 중..."):
-        current_status = api_client.get_stations_status()
-        predictions = api_client.get_predictions()
-        # XGBoost predictions will be loaded on-demand
-        xgboost_predictions = None
+    # Fetch current data with progress indicators
+    progress_container = st.container()
+    with progress_container:
+        col1, col2 = st.columns(2)
+        with col1:
+            with st.spinner("📍 대여소 현황 불러오는 중..."):
+                current_status = api_client.get_stations_status()
+        with col2:
+            with st.spinner("🤖 재고 부족 예측 중 (LightGBM)..."):
+                predictions = api_client.get_predictions()
+        
+        # XGBoost predictions - DO NOT LOAD on initial page load
+        xgboost_predictions = None  # Will be loaded on-demand in XGB tab only
     
     if current_status is not None and predictions is not None:
         # Extract dataframes from API responses
@@ -398,21 +405,10 @@ def main():
             # Use current status only if predictions not available
             df = current_df
             
-            # Try to merge XGBoost even without LightGBM predictions
-            if not xgb_df.empty:
-                df = pd.merge(df, xgb_df, on='station_id', how='left')
-            # Generate more realistic test probabilities based on available bikes
-            np.random.seed(42)  # For consistent results
-            # Lower available bikes = higher stockout probability
-            df['stockout_probability'] = df.apply(
-                lambda row: min(0.95, max(0.05, 1 - (row['available_bikes'] / row['station_capacity']) + np.random.normal(0, 0.1))),
-                axis=1
-            )
-            df['is_stockout_predicted'] = (df['stockout_probability'] >= 0.65).astype(int)
-            df['risk_level'] = df['stockout_probability'].apply(
-                lambda x: 'high' if x >= 0.8 else 'medium' if x >= 0.5 else 'low'
-            )
-            st.warning("⚠️ 예측 API 미연결 - 테스트 데이터 사용 중")
+            # If predictions fail, show error and return empty dataframe
+            st.error("❌ 예측 모델 API 연결 실패 - 예측 데이터를 사용할 수 없습니다.")
+            st.info("💡 API 서버를 확인해주세요: http://localhost:8002/docs")
+            df = pd.DataFrame()  # Return empty dataframe to trigger error handling below
         else:
             df = pd.DataFrame()
         
@@ -565,8 +561,9 @@ def main():
                         tiles='OpenStreetMap'
                     )
                     
-                    # Add markers for filtered stations
-                    for idx, row in filtered_df.iterrows():  # Show all stations on map
+                    # Add markers for filtered stations (limit to 100 for performance)
+                    map_df = filtered_df.head(100) if len(filtered_df) > 100 else filtered_df
+                    for idx, row in map_df.iterrows():
                         # Skip if no coordinates
                         if pd.isna(row.get('latitude')) or pd.isna(row.get('longitude')):
                             continue
@@ -1174,10 +1171,9 @@ def main():
     else:
         st.error("⚠️ 데이터를 불러올 수 없습니다. API 서버 연결을 확인해주세요.")
     
-    # Auto-refresh
-    if st.session_state.auto_refresh:
-        time.sleep(900)  # Refresh every 15 minutes
-        st.rerun()
+    # Auto-refresh - REMOVED the blocking sleep!
+    # The dashboard will refresh when user clicks refresh button instead
+    # time.sleep was blocking the entire UI!
 
 if __name__ == "__main__":
     main()

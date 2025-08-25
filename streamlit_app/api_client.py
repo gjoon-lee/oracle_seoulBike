@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 class BikeAPIClient:
     """Client for interacting with the bike prediction API"""
     
-    def __init__(self, base_url: str = "http://localhost:8003"):
+    def __init__(self, base_url: str = "http://localhost:8002"):
         self.base_url = base_url
         self.session = requests.Session()
         self.session.headers.update({
@@ -24,6 +24,10 @@ class BikeAPIClient:
     def _make_request(self, method: str, endpoint: str, **kwargs) -> Optional[Dict]:
         """Make HTTP request to API"""
         url = f"{self.base_url}{endpoint}"
+        
+        # Add a reasonable timeout if not specified - 2 minutes for XGBoost
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = 120  # 120 second (2 minute) timeout
         
         try:
             response = self.session.request(method, url, **kwargs)

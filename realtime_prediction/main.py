@@ -537,7 +537,10 @@ async def refresh_all_predictions():
     """Background task to refresh predictions"""
     try:
         logger.info("Background refresh started")
-        predictions = prediction_service.predict_all_stations()
+        # Run the blocking operation in a thread pool to avoid blocking the event loop
+        import asyncio
+        loop = asyncio.get_event_loop()
+        predictions = await loop.run_in_executor(None, prediction_service.predict_all_stations)
         
         if not predictions.empty:
             result = {

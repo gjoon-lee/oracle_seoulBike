@@ -31,152 +31,314 @@ class HistoricalDataLoader:
     def load_availability_history(self, 
                                  station_ids: Optional[List[str]] = None,
                                  hours: int = None) -> pd.DataFrame:
-        """Load historical availability data"""
+        """Load historical availability data with intelligent fallback"""
         if hours is None:
             hours = self.window_hours
         
-        start_date = datetime.now() - timedelta(hours=hours)
+        current_date = datetime.now()
+        fallback_strategies = [
+            # Strategy 1: Last 7 days (most recent)
+            {
+                'name': 'Last 7 days',
+                'start_date': current_date - timedelta(hours=hours),
+                'end_date': current_date,
+                'quality': 1.0
+            },
+            # Strategy 2: 2 weeks ago, same day
+            {
+                'name': '2 weeks ago',
+                'start_date': current_date - timedelta(days=14, hours=hours),
+                'end_date': current_date - timedelta(days=14),
+                'quality': 0.85
+            },
+            # Strategy 3: 4 weeks ago, same day
+            {
+                'name': '4 weeks ago',
+                'start_date': current_date - timedelta(days=28, hours=hours),
+                'end_date': current_date - timedelta(days=28),
+                'quality': 0.7
+            },
+            # Strategy 4: Same period last year
+            {
+                'name': 'Last year same period',
+                'start_date': current_date.replace(year=current_date.year-1) - timedelta(hours=hours),
+                'end_date': current_date.replace(year=current_date.year-1),
+                'quality': 0.5
+            }
+        ]
         
-        try:
-            query_base = f"""
-                SELECT 
-                    station_id,
-                    date,
-                    hour,
-                    available_bikes,
-                    station_capacity,
-                    available_racks,
-                    is_stockout,
-                    is_nearly_empty,
-                    is_nearly_full
-                FROM bike_availability_hourly
-                WHERE date >= '{start_date.date()}'
-            """
-            
-            if station_ids:
-                station_list = "', '".join(station_ids)
-                query_base += f" AND station_id IN ('{station_list}')"
-            
-            query_base += " ORDER BY station_id, date, hour"
-            
-            logger.info(f"Loading {hours} hours of availability history")
-            df = self.db.read_query(text(query_base))
-            
-            if not df.empty:
-                # Create datetime column
-                df['datetime'] = pd.to_datetime(df['date'].astype(str) + ' ' + 
-                                               df['hour'].astype(str) + ':00:00')
+        df = pd.DataFrame()
+        used_strategy = None
+        
+        for strategy in fallback_strategies:
+            try:
+                query_base = f"""
+                    SELECT 
+                        station_id,
+                        date,
+                        hour,
+                        available_bikes,
+                        station_capacity,
+                        available_racks,
+                        is_stockout,
+                        is_nearly_empty,
+                        is_nearly_full
+                    FROM bike_availability_hourly
+                    WHERE date >= '{strategy['start_date'].date()}'
+                    AND date <= '{strategy['end_date'].date()}'
+                """
                 
-                # Calculate derived features
-                df['utilization_rate'] = df['available_bikes'] / df['station_capacity']
-                df['utilization_rate'] = df['utilization_rate'].fillna(0)
-                df['capacity_pressure'] = 1 - (df['available_racks'] / df['station_capacity'])
-                df['capacity_pressure'] = df['capacity_pressure'].fillna(1)
+                if station_ids:
+                    station_list = "', '".join(station_ids)
+                    query_base += f" AND station_id IN ('{station_list}')"
                 
-                logger.info(f"Loaded {len(df)} availability records for {df['station_id'].nunique()} stations")
-            else:
-                logger.warning("No availability history found")
+                query_base += " ORDER BY station_id, date, hour"
+                
+                df = self.db.read_query(text(query_base))
+                
+                if not df.empty:
+                    used_strategy = strategy
+                    logger.info(f"Using fallback strategy: {strategy['name']} "
+                              f"(quality: {strategy['quality']:.1%})")
+                    logger.info(f"Date range: {strategy['start_date'].date()} to {strategy['end_date'].date()}")
+                    break
+                    
+            except Exception as e:
+                logger.debug(f"Strategy '{strategy['name']}' failed: {e}")
+                continue
+        
+        if not df.empty:
+            # Create datetime column
+            df['datetime'] = pd.to_datetime(df['date'].astype(str) + ' ' + 
+                                           df['hour'].astype(str) + ':00:00')
             
-            return df
+            # Adjust datetime to current period if using historical data
+            if used_strategy and used_strategy['quality'] < 1.0:
+                # Calculate time shift needed
+                time_shift = current_date - used_strategy['end_date']
+                df['datetime'] = df['datetime'] + time_shift
+                df['date'] = df['datetime'].dt.date
+                df['hour'] = df['datetime'].dt.hour
+                logger.info(f"Adjusted timestamps by {time_shift.days} days to match current period")
             
-        except Exception as e:
-            logger.error(f"Error loading availability history: {e}")
-            return pd.DataFrame()
+            # Calculate derived features
+            df['utilization_rate'] = df['available_bikes'] / df['station_capacity']
+            df['utilization_rate'] = df['utilization_rate'].fillna(0)
+            df['capacity_pressure'] = 1 - (df['available_racks'] / df['station_capacity'])
+            df['capacity_pressure'] = df['capacity_pressure'].fillna(1)
+            
+            # Add data quality indicator
+            df['data_quality'] = used_strategy['quality'] if used_strategy else 1.0
+            
+            logger.info(f"Loaded {len(df)} availability records for {df['station_id'].nunique()} stations")
+        else:
+            logger.warning("No availability history found with any fallback strategy")
+            # Return empty dataframe with expected columns
+            df = pd.DataFrame(columns=['station_id', 'date', 'hour', 'datetime',
+                                      'available_bikes', 'station_capacity', 'available_racks',
+                                      'is_stockout', 'is_nearly_empty', 'is_nearly_full',
+                                      'utilization_rate', 'capacity_pressure', 'data_quality'])
+        
+        return df
     
     def load_netflow_history(self,
                            station_ids: Optional[List[str]] = None,
                            hours: int = None) -> pd.DataFrame:
-        """Load historical net flow data"""
+        """Load historical net flow data with intelligent fallback"""
         if hours is None:
             hours = self.window_hours
         
-        start_date = datetime.now() - timedelta(hours=hours)
+        current_date = datetime.now()
+        fallback_strategies = [
+            # Strategy 1: Last 7 days (most recent)
+            {
+                'name': 'Last 7 days',
+                'start_date': current_date - timedelta(hours=hours),
+                'end_date': current_date,
+                'quality': 1.0
+            },
+            # Strategy 2: 2 weeks ago, same day
+            {
+                'name': '2 weeks ago',
+                'start_date': current_date - timedelta(days=14, hours=hours),
+                'end_date': current_date - timedelta(days=14),
+                'quality': 0.85
+            },
+            # Strategy 3: 4 weeks ago, same day
+            {
+                'name': '4 weeks ago',
+                'start_date': current_date - timedelta(days=28, hours=hours),
+                'end_date': current_date - timedelta(days=28),
+                'quality': 0.7
+            },
+            # Strategy 4: Same period last year
+            {
+                'name': 'Last year same period',
+                'start_date': current_date.replace(year=current_date.year-1) - timedelta(hours=hours),
+                'end_date': current_date.replace(year=current_date.year-1),
+                'quality': 0.5
+            }
+        ]
         
-        try:
-            query_base = f"""
-                SELECT 
-                    station_id,
-                    flow_date as date,
-                    flow_hour as hour,
-                    bikes_departed,
-                    bikes_arrived,
-                    net_flow,
-                    day_of_week,
-                    is_weekend,
-                    avg_trip_duration_min,
-                    avg_trip_distance_m
-                FROM station_hourly_flow
-                WHERE flow_date >= '{start_date.date()}'
-            """
-            
-            if station_ids:
-                station_list = "', '".join(station_ids)
-                query_base += f" AND station_id IN ('{station_list}')"
-            
-            query_base += " ORDER BY station_id, flow_date, flow_hour"
-            
-            logger.info(f"Loading {hours} hours of netflow history")
-            df = self.db.read_query(text(query_base))
-            
-            if not df.empty:
-                # Create datetime column
-                df['datetime'] = pd.to_datetime(df['date'].astype(str) + ' ' + 
-                                               df['hour'].astype(str) + ':00:00')
+        df = pd.DataFrame()
+        used_strategy = None
+        
+        for strategy in fallback_strategies:
+            try:
+                query_base = f"""
+                    SELECT 
+                        station_id,
+                        flow_date as date,
+                        flow_hour as hour,
+                        bikes_departed,
+                        bikes_arrived,
+                        net_flow,
+                        day_of_week,
+                        is_weekend,
+                        avg_trip_duration_min,
+                        avg_trip_distance_m
+                    FROM station_hourly_flow
+                    WHERE flow_date >= '{strategy['start_date'].date()}'
+                    AND flow_date <= '{strategy['end_date'].date()}'
+                """
                 
-                # Calculate total activity
-                df['total_activity'] = df['bikes_departed'] + df['bikes_arrived']
+                if station_ids:
+                    station_list = "', '".join(station_ids)
+                    query_base += f" AND station_id IN ('{station_list}')"
                 
-                logger.info(f"Loaded {len(df)} netflow records for {df['station_id'].nunique()} stations")
-            else:
-                logger.warning("No netflow history found")
+                query_base += " ORDER BY station_id, flow_date, flow_hour"
+                
+                df = self.db.read_query(text(query_base))
+                
+                if not df.empty:
+                    used_strategy = strategy
+                    logger.info(f"Using fallback strategy: {strategy['name']} "
+                              f"(quality: {strategy['quality']:.1%})")
+                    logger.info(f"Date range: {strategy['start_date'].date()} to {strategy['end_date'].date()}")
+                    break
+                    
+            except Exception as e:
+                logger.debug(f"Strategy '{strategy['name']}' failed: {e}")
+                continue
+        
+        if not df.empty:
+            # Create datetime column
+            df['datetime'] = pd.to_datetime(df['date'].astype(str) + ' ' + 
+                                           df['hour'].astype(str) + ':00:00')
             
-            return df
+            # Adjust datetime to current period if using historical data
+            if used_strategy and used_strategy['quality'] < 1.0:
+                # Calculate time shift needed
+                time_shift = current_date - used_strategy['end_date']
+                df['datetime'] = df['datetime'] + time_shift
+                df['date'] = df['datetime'].dt.date
+                df['hour'] = df['datetime'].dt.hour
+                logger.info(f"Adjusted timestamps by {time_shift.days} days to match current period")
             
-        except Exception as e:
-            logger.error(f"Error loading netflow history: {e}")
-            return pd.DataFrame()
+            # Calculate total activity
+            df['total_activity'] = df['bikes_departed'] + df['bikes_arrived']
+            
+            # Add data quality indicator
+            df['data_quality'] = used_strategy['quality'] if used_strategy else 1.0
+            
+            logger.info(f"Loaded {len(df)} netflow records for {df['station_id'].nunique()} stations")
+        else:
+            logger.warning("No netflow history found with any fallback strategy")
+            # Return empty dataframe with expected columns
+            df = pd.DataFrame(columns=['station_id', 'date', 'hour', 'datetime',
+                                      'bikes_departed', 'bikes_arrived', 'net_flow',
+                                      'total_activity', 'data_quality'])
+        
+        return df
     
     def load_weather_history(self, hours: int = None) -> pd.DataFrame:
-        """Load historical weather data"""
+        """Load historical weather data with intelligent fallback"""
         if hours is None:
             hours = self.window_hours
         
-        start_date = datetime.now() - timedelta(hours=hours)
+        current_date = datetime.now()
+        fallback_strategies = [
+            # Strategy 1: Last 7 days (most recent)
+            {
+                'name': 'Last 7 days',
+                'start_date': current_date - timedelta(hours=hours),
+                'end_date': current_date,
+                'quality': 1.0
+            },
+            # Strategy 2: 2 weeks ago
+            {
+                'name': '2 weeks ago',
+                'start_date': current_date - timedelta(days=14, hours=hours),
+                'end_date': current_date - timedelta(days=14),
+                'quality': 0.8
+            },
+            # Strategy 3: Same period last year (for seasonal patterns)
+            {
+                'name': 'Last year same period',
+                'start_date': current_date.replace(year=current_date.year-1) - timedelta(hours=hours),
+                'end_date': current_date.replace(year=current_date.year-1),
+                'quality': 0.6
+            }
+        ]
         
-        try:
-            query = text(f"""
-                SELECT 
-                    date,
-                    hour,
-                    temperature,
-                    humidity,
-                    precipitation,
-                    wind_speed,
-                    feels_like,
-                    is_raining,
-                    is_snowing,
-                    weather_severity
-                FROM weather_hourly
-                WHERE date >= '{start_date.date()}'
-                ORDER BY date, hour
-            """)
+        df = pd.DataFrame()
+        used_strategy = None
+        
+        for strategy in fallback_strategies:
+            try:
+                query = text(f"""
+                    SELECT 
+                        date,
+                        hour,
+                        temperature,
+                        humidity,
+                        precipitation,
+                        wind_speed,
+                        feels_like,
+                        is_raining,
+                        is_snowing,
+                        weather_severity
+                    FROM weather_hourly
+                    WHERE date >= '{strategy['start_date'].date()}'
+                    AND date <= '{strategy['end_date'].date()}'
+                    ORDER BY date, hour
+                """)
+                
+                df = self.db.read_query(query)
+                
+                if not df.empty:
+                    used_strategy = strategy
+                    logger.info(f"Using weather fallback: {strategy['name']} "
+                              f"(quality: {strategy['quality']:.1%})")
+                    break
+                    
+            except Exception as e:
+                logger.debug(f"Weather strategy '{strategy['name']}' failed: {e}")
+                continue
+        
+        if not df.empty:
+            # Create datetime column
+            df['datetime'] = pd.to_datetime(df['date'].astype(str) + ' ' + 
+                                           df['hour'].astype(str) + ':00:00')
             
-            logger.info(f"Loading {hours} hours of weather history")
-            df = self.db.read_query(query)
+            # Adjust datetime to current period if using historical data
+            if used_strategy and used_strategy['quality'] < 1.0:
+                time_shift = current_date - used_strategy['end_date']
+                df['datetime'] = df['datetime'] + time_shift
+                df['date'] = df['datetime'].dt.date
+                df['hour'] = df['datetime'].dt.hour
+                logger.info(f"Adjusted weather timestamps by {time_shift.days} days")
             
-            if not df.empty:
-                # Create datetime column
-                df['datetime'] = pd.to_datetime(df['date'].astype(str) + ' ' + 
-                                               df['hour'].astype(str) + ':00:00')
-                logger.info(f"Loaded {len(df)} weather records")
-            else:
-                logger.warning("No weather history found")
-            
-            return df
-            
-        except Exception as e:
-            logger.error(f"Error loading weather history: {e}")
-            return pd.DataFrame()
+            logger.info(f"Loaded {len(df)} weather records")
+        else:
+            logger.warning("No weather history found with any fallback strategy")
+            # Return empty dataframe with expected columns
+            df = pd.DataFrame(columns=['date', 'hour', 'datetime', 'temperature',
+                                      'humidity', 'precipitation', 'wind_speed',
+                                      'feels_like', 'is_raining', 'is_snowing',
+                                      'weather_severity'])
+        
+        return df
     
     def load_combined_history(self,
                             station_ids: Optional[List[str]] = None,
@@ -255,11 +417,11 @@ class HistoricalDataLoader:
     def calculate_lag_features(self, 
                               current_data: pd.DataFrame,
                               lag_hours: List[int] = None) -> pd.DataFrame:
-        """Calculate lag features for current data using historical data"""
+        """Calculate lag features for current data using historical data - OPTIMIZED"""
         if lag_hours is None:
             lag_hours = Config.LAG_HOURS
         
-        # Load historical data
+        # Load historical data for ALL stations at once
         station_ids = current_data['station_id'].unique().tolist()
         history_df = self.load_combined_history(station_ids, max(lag_hours) + 1)
         
@@ -272,12 +434,12 @@ class HistoricalDataLoader:
                     current_data[f'{col}_lag_{lag}h'] = np.nan
             return current_data
         
-        # For each station in current data, calculate lag features
+        # Process lag features for each station
         result_dfs = []
+        current_time = pd.Timestamp.now()
         
         for _, row in current_data.iterrows():
             station_id = row['station_id']
-            current_time = pd.Timestamp.now()
             
             # Get station history
             station_history = history_df[history_df['station_id'] == station_id].copy()
